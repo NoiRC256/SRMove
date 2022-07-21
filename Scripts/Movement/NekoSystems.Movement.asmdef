@@ -1,0 +1,16 @@
+{
+    "name": "NekoSystems.Movement",
+    "rootNamespace": "",
+    "references": [
+        "GUID:d1903471076503d4197e2117464ddba1"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
