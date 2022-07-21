@@ -142,7 +142,7 @@ private void FixedUpdate()
         // Use extended ground threshold to snap to ground.
         CharacterMover.UseExtraGroundThresholdDistance = true;
 
-        // Update moving platform's velocity.
+        // Update moving platform's velocity, if any.
         CharacterMover.UpdateConnectedBody();
     } 
     else
@@ -179,7 +179,7 @@ private void FixedUpdate()
     if(CharacterMover.IsGrounded)
     {
         ...
-        // Cache and apply moving platform's velocity, if any.
+        // Update moving platform's velocity, if any.
         CharacterMover.UpdateConnectedBody();
         if(!_groundContactChanged)
         {
