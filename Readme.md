@@ -1,68 +1,88 @@
 # Overview #
-NekoNekoMovement is a rigidbody physics character movement solution.
+NekoNekoMovement is a rigidbody physics character movement solution, designed as an alternative to Unity's Character Controller.
 
-`CharacterMover` provides methods for moving a character with a rigidbody and a capsule collider. It is designed as a rigidbody physics alternative to Unity's `CharacterController`.
+This is useful if you want to handle velocity physics yourself in a rigidbody physics-based approach, while having basic functionalities handled for you in a lower-level MonoBehaviour.
 
-This is useful if you want to handle acceleration, deceleration, friction, gravity yourself in a rigidbody physics-based movement approach, but also have functionalities like ground detection, stair and slope traversal, ground snapping, etc. handled for you in a lower-level MonoBehaviour. You also retain the ability to interact with the physics world with rigidbody physics.
 
 ### Key Features ###
-- Ground detection
-- Stair traversal
-- Slope traversal
-- Inherit moving platform velocity
-- Intuitive capsule collider adjustment
-- Rigidbody physics
+:heavy_check_mark: Ground detection
+:heavy_check_mark: Stair traversal with smoothing
+:heavy_check_mark: Slope traversal
+:heavy_check_mark: Intuitive capsule collider adjustment
+:heavy_check_mark: Inherit moving platform velocity
 
 ### Environment ###
 
-This was tested on Unity 2021.3.6f1, but technically works with any modern Unity version.
+Tested in Unity 2021.3.6f1 LTS
+
+Requires Unity 2021.2 and above
+
 
 ### Usage ###
 
-- Add `CharacterMover` component to a gameobject with rigidbody and capsule collider, ideally with frictionless physics material.
-- In your own movement controller, import `NekoSystems.Movement`.
-- You can call methods from `CharacterMover` to implement your movement logic.
+- Add `CharacterMover` component to a gameobject. A rigidbody and capsule collider will be automatically added.
+- In your own movement controller, import `NekoSystems.Movement`, and reference the `CharacterMover`.
+- Now you can use methods from `CharacterMover` to implement your movement logic.
 
-For examples, see [Examples](#examples)
-
-# Implementation Details #
-
-## Stair Traversal ##
-NekoNekoMovement uses a floating capsule approach to handle stair traversal. The character's capsule collider constantly floats at a distance from ground to maintain a step height.
-
-In a `CheckGround()` call, `CharacterMover` calculates and caches a ground adjustment velocity based on the detected ground distance. This ground adjustment velocity is used to maintain desired distance from ground in the next `Move(velocity)` call.
-
-Note that since the ground adjustment velocity is often only computed at the beginning of a physics frame but applied to rigidbody velocity after some new movement velocity has been calculated, it actually lags behind one physics frame. When landing at a high speed, this may cause ground penetration for one frame. To mitigate this artifact, it is recommended to apply `PreventGroundPenetration(velocity)` before `Move(velocity)` to preemptively update ground adjustment velocity.
+For examples, see the [Examples Section](#examples)
 
 ```csharp
-private FixedUpdate()
+using NekoNeko.Movement
+...
+private void FixedUpdate()
 {
+    CharacterMover.CheckGround();
+    ...
     Vector3 velocity = ...
     ...
-    CharacterMover.PreventGroundPenetration(velocity);
     CharacterMover.Move(velocity);
 }
 ```
 
-## Snap To Ground ##
-The character is able to stick to ground when traversing across small obstacles, stepping down stairs, or going down slopes.
-This is achieved by a combination of functionalities.
+### WIP ###
+- Influence from moving platform rotation
 
-- Ground threshold distance can be extended by step height while grounded. This allows us to safely step down stairs while remaining grounded.
-- Ground detection is achieved by both ground probing and direct collision. This ensures reliable ground detection on steep slopes, where ground threshold distance might be too short or spherecast too thin to reach ground but the collider itself is touching ground on one side.
 
-For more reliable ground snapping, you can also align your velocity to ground surface before moving. For example:
+# Implementation Details #
+
+This movement solution uses three components: a rigidbody, a capsule collider, and `CharacterMover`.
+
+Capsule collider handles non-ground collisions. Its dimensions can be adjusted by `CharacterMover`'s inspector fields in an intuitive way.
+
+`CharacterMover` handles ground collisions, and provides core movement features.
+
+Ground detection and collision is completely handled by the `CharacterMover` MonoBehaviour. [Contact modification](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/Physics.ContactModifyEvent.html) is used to ensure the capsule collider never collides with traversable ground, even at steep angles.
+
+## Stair Traversal ##
+NekoNekoMovement uses a floating capsule approach to handle stair traversal. The character's capsule collider constantly floats at a distance from ground to maintain step height.
+
+This approach allows minimal hassle for stair detection. `CharacterMover` uses only one spherecast for ground detection, and one short raycast for stair detection when necessary.
+
+In a `CheckGround()` call, `CharacterMover` calculates and caches a ground adjustment velocity based on the detected ground distance. This ground adjustment velocity is used to maintain desired distance from ground in the next `Move(velocity)` call.
+
+## Ground Probing ##
+NekoNekoMovement uses spherecast for ground probing. Using raycast provides slightly better performance, but might leave us vulnerable to misdetections due to small gaps on the ground. Spherecast ground probing provides more consistent results, and allows us to perch off ledges.
+
+In each `CheckGround()` call, we use ground probing to find ground. Ground probing performs a spherecast from collider center downwards for a fixed distance, and refreshes ground information. If the hit distance is within ground threshold distance, then we are on ground. Ground threshold distance is derived from a combination of capsule halfheight, configured step height, and a small error threshold. 
+
+## Snapping To Ground ##
+The character is able to stick to ground when traversing across small obstacles, stepping down stairs, or going down slopes. This can be achieved by a combination of methods:
+
+1. By default, `UseExtraGroundThresholdDistance` is automatically set to true while grounded. The extended ground probing distrance allows us to safely step down stairs while remaining grounded. You can handle this manually by setting the inspector field `autoSnapToGround` to false.
+
+2. For more reliable ground snapping, you can also align your movement velocity to ground surface. 
+
+For example:
 
 ```csharp
 private FixedUpdate()
 {
-    // Lateral movement direction from input, on Vector3.up plane.
+    // Lateral movement direction from input.
     Vector3 desiredDirection = ...
     ...
     if(CharacterMover.IsGrounded)
     {
         // Rotate direction to align with ground slope.
-        Vector3 groundNormal = CharacterMover.GroundSurfaceNormal;
         Quaternion deltaAlign = Quaternion.FromToRotation(Vector3.up, CharacterMover.GroundSurfaceNormal);
         Vector3 groundAlignedDirection = (deltaAlign * desiredDirection).normalized;
         velocity = _speed * groundAlignedDirection;
@@ -72,60 +92,47 @@ private FixedUpdate()
 }
 ```
 
-## Ground Probing and Real Ground Surface Normal Detection ##
-NekoNeko Character Movement uses spherecast for ground probing. This is because using raycast might leave us vulnerable to misdetections due to small cracks and crevices on the ground. Spherecast ground probing provides more consistent results, and allows us to perch off ledges. 
+This also normalizes your ground speed on slopes.
 
-In each `CheckGround()` call, we first check whether there are any existing direct collisions with ground. If there are, use those collisions to update ground information. Otherwise, we use ground probing to find ground. Ground probing performs a spherecast downwards for a fixed distance. If the hit distance is within ground threshold distance, then it is a ground. Ground threshold distance is derived from a combination of capsule halfheight, configured step height, and a small error threshold. 
+## Preventing Ground Penetration ##
 
-It is also worth noting that ground probing obtains the real surface normal of the ground hit. Originally, the normal obtained by spherecast's `hit.normal` is not the actual surface normal of the hit point, but an inverse hit normal relative to the centre of the sphere. This means when probing ground on the tip of a stair, the hit normal might be slanted, which causes the ground to be recognized as a slope. This can be problematic when we have a small slope angle limit, as the tip of a stair may be erroneously considered as non-traversable slope. To mitigate this issue, we have two solutions:
+When landing at a high speed, the character may sometimes appear to slightly penetrate the ground for one frame. This is an artiface of the floating capsule approach. Since the ground adjustment velocity used for floating is often only computed at the beginning of a physics frame, but applied to rigidbody velocity after some new movement velocity has been calculated, it actually lags behind one physics frame. 
 
-1. Calculate real ground surface normal from spherecast hit. This is already done by default.
-This is achieved by performing another very short raycast in the same direction against the hit collider, and using that hit normal.
+(This may also be related to [Physics.autoSyncTransforms defaulting to false from Unity 2018.3 onwards](https://unity.com/how-to/best-practices-performance-optimization-unity#transforms-performance-scattered-vs-batched-physics-query), although not tested).
 
-2. When ground probing detects non-traversable slope, perform another ground probing by raycast, still from the collider center's height, but at a small offset from the detected ground point, towards movement direction. If this second ground probing returns a slope angle that is within slope limit, then this can be considered as a traversable stair.
+To mitigate this artifact, you can choose to apply `PreventGroundPenetration(velocity, useRaycast)` before `Move(velocity)`. This preemptively updates ground adjustment velocity, at the cost of one extra spherecast or raycast.
 
-Method 1 is always done by default in `CharacterMover`'s internal ground probing. This is usually sufficient.
 
-If you need more customizable results, Method 2 can be implemented in your own movement controller. `CharacterMover` provides exposed variables and auxillary methods to support this.
+## Distinguishing Stairs from Steep Slopes ##
 
-Method 2 example:
+\* *Steep slope* refers to ground with a slope angle that exceeds `maxSlopeAngle`.
 
-``` csharp
-private FixedUpdate()
-{
-    ...
-    if(CharacterMover.IsOnSteepGround)
-    {
-        // Check whether the ground is a steep slope or the ground is just the tip of a stair.
-        if(!FinsStairSurface(direction))
-        {
-            // Ground is actually a steep slope.
-        }
-    }
-    ...
-}
+Slope angle is determined by the dot product of the up vector and ground normal.
 
-// Returns true if ground can be considered as a traversable stair, false if ground is a steep slope. 
-public bool FindStairSurface(Vector3 direction)
-{
-    // Probe ground a bit forward from the last ground point.
-    RaycastHit hit;
-    bool willBeGrounded;
-    float nextGroundDistance;
-    CharacterMover.PredictGroundFromGroundpPointRaycast(CharacterMover.StepProbeOffset * direction, out hit, out willBeGrounded, out nextGroundDistance);
+The original normal obtained by spherecast's `hit.normal` is not the actual surface normal of the hit point, but a direction vector relative to the centre of the sphere. This means when probing ground on the tip of a stair, the hit normal might be slanted, which causes the ground to be recognized as a slope. 
 
-    if(!willBeGrounded)
-    {
-        return true;
-    }
-    float nextUpDotGround = Vector3.Dot(_upAxis, hit.normal);
-    return !CharacterMover.IsGroundSteep(nextUpDotGround);
-}
-```
+This can be problematic when we have a small slope angle limit. The tip of a stair may be erroneously considered as steep slope, which might prevent the character from moving up the stair depending on the movement implementation. To mitigate this issue, we have two solutions:
+
+### Method 1. Verify Steep Slope ###
+
+This is done by default, with `useStairProbing` set to true.
+When ground probing detects we're on steep slope, `VerifySteepSlope` is called to perform a predictive raycast at a small offset from the ground point, away from collider center. The resulting hit point and the original ground point forms an angle. If this angle is still too steep, then we're on steep ground; Otherwise this is considered as the tip of a stair.
+
+### Method 2. Calculate Real Ground Normal ###
+
+Enable `useRealGroundNormal` to let ground probing calculate the real ground normal of the ground hit. A very short raycast is performed in the same direction against the ground collider to obtain the real ground normal.
+
+This is not recommended, as it may produce incorrect results for scaled gameobjects.
+
 
 # Examples #
+NekoNekoMovement is designed as an alternative to Unity's CharacterController.
 
 `CharacterMover` provides core features to support character movement. You can implement your own movement controllers on top of this.
+
+```csharp
+using NekoNeko.Movement
+```
 
 Usage example:
 
@@ -139,20 +146,17 @@ private void FixedUpdate()
 
     if(CharacterMover.IsGrounded)
     {
-        // Use extended ground threshold to snap to ground.
-        CharacterMover.UseExtraGroundThresholdDistance = true;
-
-        // Update moving platform's velocity, if any.
-        CharacterMover.UpdateConnectedBody();
+        // Update moving platform velocity cache.
+        CharacterMover.UpdateConnectedBodyVelocity();
     } 
     else
     {   
-        // Don't use extended ground threshold.
-        CharacterMover.UseExtraGroundThresholdDistance = false;
-
         // Update and apply gravity.
         _currentFallSpeed = Mathf.Min(_currentFallSpeed + Mathf.Abs(gravity) * Time.deltaTime, _maxFallSpeed);
         extraVelocity.y += -_currentFallSpeed;
+
+        // Update adjustment velocity to prevent slight ground penetration when landing.
+        CharacterMover.PreventGroundPenetration(velocity, useRaycast: true);
     }
 
     // Apply cached moving platform velocity.
@@ -160,49 +164,8 @@ private void FixedUpdate()
 
     velocity += extraVelocity;
 
-    CharacterMover.PreventGroundPenetration(velocity);
     CharacterMover.Move(velocity);
 }
 ```
 
-
-Currently, upon landing, `CharacterMover.ConnectionVelocity` may lag behind one frame due to how it's calculated. For optimal smoothness, you could implement logic that prevents applying connection velocity for one frame if we just landed in that frame.
-
-(The same logic can also be used to fire ground contact changed events).
-
-```csharp
-private void FixedUpdate()
-{
-    ...
-    CheckGround();
-
-    if(CharacterMover.IsGrounded)
-    {
-        ...
-        // Update moving platform's velocity, if any.
-        CharacterMover.UpdateConnectedBody();
-        if(!_groundContactChanged)
-        {
-            _lastConnectionVelocity = CharacterMover.ConnectionVelocity;
-        }
-    } 
-    ...
-    // Apply cached moving platform velocity.
-    extraVelocity += _lastConnectionVelocity;
-    ...
-}
-
-private void CheckGround()
-{
-    CharacterMover.CheckGround();
-    if(CharacterMover.IsGrounded != _wasGrounded)
-    {
-        // Grounded state has changed.
-        _groundContactChanged;
-        // Some event.
-        GroundContactChanged?.Invoke();
-        _wasGrounded = CharacterMover.IsGrounded;
-    }
-}
-
-```
+If you want to align movement velocity to ground surface, see the example in [Snapping To Ground](#snapping-to-ground)

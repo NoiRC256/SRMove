@@ -1,8 +1,8 @@
 {
-    "name": "NekoSystems.Movement",
+    "name": "NekoNeko.Movement",
     "rootNamespace": "",
     "references": [
-        "GUID:d1903471076503d4197e2117464ddba1"
+        "GUID:e6c80afe7986da84fbedab6f0605f738"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
