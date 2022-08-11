@@ -5,11 +5,11 @@ This is useful if you want to handle velocity physics yourself in a rigidbody ph
 
 
 ### Key Features ###
-:heavy_check_mark: Ground detection
-:heavy_check_mark: Stair traversal with smoothing
-:heavy_check_mark: Slope traversal
-:heavy_check_mark: Intuitive capsule collider adjustment
-:heavy_check_mark: Inherit moving platform velocity
+:heavy_check_mark: Ground detection  
+:heavy_check_mark: Stair traversal with smoothing  
+:heavy_check_mark: Slope traversal  
+:heavy_check_mark: Intuitive capsule collider adjustment  
+:heavy_check_mark: Inherit moving platform velocity  
 
 ### Environment ###
 
