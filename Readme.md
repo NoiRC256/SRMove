@@ -3,6 +3,10 @@ NekoNekoMovement is a rigidbody physics character movement solution, designed as
 
 This is useful if you want to handle velocity physics yourself in a rigidbody physics-based approach, while having basic functionalities handled for you in a lower-level MonoBehaviour.
 
+:star: Intuitive collider settings~ Change height with a fixed bottom; Change step height with a fixed top.
+:star: Common usage only calls 1 spherecast per physics update, and 1 short raycast in special cases.
+:star: Utilizes [contact modification API](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/Physics.ContactModifyEvent.html) for collecting collisions.
+
 
 ### Key Features ###
 :heavy_check_mark: Ground detection  
