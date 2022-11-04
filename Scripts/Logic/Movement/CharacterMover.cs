@@ -1,13 +1,6 @@
-using Autodesk.Fbx;
-using System.Collections;
+using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using Unity.PlasticSCM.Editor.WebApi;
-using Unity.VisualScripting.FullSerializer;
-using UnityEditor.Build.Pipeline.Tasks;
-using UnityEditor.SceneManagement;
 using UnityEngine;
-using UnityEngine.Assertions.Must;
 
 namespace NekoNeko
 {
@@ -15,26 +8,28 @@ namespace NekoNeko
     {
         public const float kMaxSpeedChange = 50f;
 
-        public enum VelocityMode
+        public enum VelocityPhysicsMode
         {
+            None,
             Simple,
             Advanced,
         }
         #region Exposed Fields
         [Header("Collider Dimensions")]
-        [SerializeField][Min(0f)] private float _height = 1f;
-        [SerializeField][Min(0f)] private float _thickness = 0.6f;
+        [SerializeField][Min(0f)] private float _height = 2f;
+        [SerializeField][Min(0f)] private float _thickness = 1f;
         [SerializeField] private Vector3 _colliderOffset = Vector3.zero;
 
         [Header("Velocity Physics")]
-        [SerializeField] private bool _useVelocityPhysics = true;
-        [SerializeField] private VelocityMode _velocityMode = VelocityMode.Simple;
-        [SerializeField][Range(0f, kMaxSpeedChange)] private float _speedChange = 45f;
+        [Tooltip("Defines how we handle acceleration, deceleration, friction for active velocity.\n" +
+            "None -- Bypass velocity physics calculations.\n" + "Simple -- Use Speed Change.\n" + "Advanced -- Use Velocity Config.")]
+        [SerializeField] private VelocityPhysicsMode _velocityMode = VelocityPhysicsMode.Simple;
+        [SerializeField][Range(0f, kMaxSpeedChange)] private float _speedChange = 30f;
         [SerializeField] private VelocityConfig _velocityConfig = new VelocityConfig();
 
         [Header("Ground Detection")]
         [SerializeField][Min(0f)] private float _maxGroundRange = 5f;
-        [SerializeField][Range(0f, 90f)] private float _maxGroundAngle = 70f;
+        [SerializeField][Range(0f, 90f)] private float _groundAngleLimit = 60f;
         #endregion
 
         #region Properties
@@ -51,30 +46,53 @@ namespace NekoNeko
         /// Capsule collider thickness is equal to 2 times its radius.
         /// </summary>
         public float Thickness { get => _thickness; set { _thickness = value; UpdateColliderRadius(); } }
-
-        public float InputSpeed { get; set; }
-        public Vector3 InputDirection { get; set; }
-
         public Vector3 Velocity { get => Rigidbody.velocity; }
         public VelocityConfig VelocityConfig { get => _velocityConfig; set => _velocityConfig = value; }
+
+        public float GroundProbeRange { get => _maxGroundRange; set => _maxGroundRange = value; }
+        public float GroundAngleLimit {
+            get => _groundAngleLimit;
+            set {
+                _groundAngleLimit = value;
+                _minGroundAngleDot = Mathf.Cos(value * Mathf.Deg2Rad);
+            }
+        }
+        public bool IsOnGround { get; set; }
+        public Vector3 GroundNormal { get => _groundNormal; set => _groundNormal = value; }
         #endregion
 
         #region Fields
+
         // Convenience cache for collider.
         private CapsuleCollider _capsuleCollider;
         private float _capsuleHalfHeight;
+        // Points with ground normal dot larger than this value is considered as ground.
+        private float _minGroundAngleDot;
 
-        // Current input velocity.
-        private Vector3 _inputVel;
-        // Active velocity is driven by input and affected by velocity physics.
+        private List<Collision> _collisions = new List<Collision>();
+        private List<Impulse> _impulses = new List<Impulse>();
+
+        private float _inputSpeed;
+        private Vector3 _inputDirection;
+        // Active velocity, driven by input and affected by velocity physics.
         private Vector3 _activeVel = Vector3.zero;
         // Previous nonzero active vel direction.
         private Vector3 _nonZeroActiveDirection = Vector3.zero;
 
-        // Passive velocity.
-        private Vector3 _passiveVel = Vector3.zero;
-        // Current velocity contribution from connected body.
+        // Direct velocity, overrides active velocity and bypasses all velocity physics.
+        private Vector3 _directVel = Vector3.zero;
+        private bool _hasDirectVel = false;
+
+        // Base velocity contribution from connected body.
         private Vector3 _connectedVel;
+
+        private int _groundCollisionCount = 0;
+        private Vector3 _groundNormal = Vector3.up;
+
+        #endregion
+
+        #region Events
+        public event Action LostGroundContact;
         #endregion
 
         #region MonoBehaviour
@@ -83,55 +101,212 @@ namespace NekoNeko
         {
             AddComponents();
             UpdateColliderDimensions();
+            _minGroundAngleDot = Mathf.Cos(_groundAngleLimit * Mathf.Deg2Rad);
         }
 
         private void Awake()
         {
-            UpdateColliderDimensions();
+            OnValidate();
         }
 
         private void FixedUpdate()
         {
             UpdateMovement();
+            IsOnGround = false;
+            _groundNormal = Vector3.up;
+        }
+
+        private void OnCollisionEnter(Collision collision)
+        {
+            _collisions.Add(collision);
+            CheckGround(collision);
+        }
+
+        private void OnCollisionStay(Collision collision)
+        {
+            CheckGround(collision);
+
+#if UNITY_EDITOR
+            for (int i = 0; i < collision.contactCount; i++)
+            {
+                ContactPoint contact = collision.GetContact(i);
+                Vector3 normal = contact.normal;
+                Debug.DrawLine(contact.point, contact.point + contact.normal * 0.1f, Color.blue);
+            }
+#endif
+        }
+
+        private void OnCollisionExit(Collision collision)
+        {
+            _collisions.Remove(collision);
+        }
+
+        private void CheckGround(Collision collision)
+        {
+            bool isCollisionGround = EvaluateGroundCollision(collision, out Vector3 groundNormal);
+            if (isCollisionGround)
+            {
+                IsOnGround = true;
+                _groundNormal += groundNormal;
+                _groundNormal.Normalize();
+                _groundNormal = groundNormal;
+            }
+        }
+
+        private bool EvaluateGroundCollision(Collision collision, out Vector3 groundNormal)
+        {
+            bool isCollisionGround = false;
+            int groundContactCount = 0;
+            groundNormal = Vector3.up;
+            for (int i = 0; i < collision.contactCount; i++)
+            {
+                Vector3 normal = collision.GetContact(i).normal;
+                bool isContactGround = normal.y > _minGroundAngleDot;
+                isCollisionGround |= isContactGround;
+                if (isCollisionGround)
+                {
+                    groundContactCount++;
+                    groundNormal = normal;
+                }
+            }
+            groundNormal.Normalize();
+            return isCollisionGround;
         }
 
         #endregion
 
+        #region Movement Processing Methods
         private void UpdateMovement()
         {
-            if (!_useVelocityPhysics)
-            {
-                _activeVel = InputSpeed * InputDirection;
-            }
-            else
+            float deltaTime = Time.deltaTime;
+
+            // Refresh active velocity.
+            // Add any velocity from input, apply velocity physics to existing active velocity.
+            bool noActiveVel = (_inputSpeed == 0f || _inputDirection == Vector3.zero) && _activeVel == Vector3.zero;
+            if (!noActiveVel)
             {
                 switch (_velocityMode)
                 {
-                    case VelocityMode.Simple:
-                        _activeVel = CalculatePhysicsVelocitySimple(_activeVel, InputSpeed * InputDirection, _speedChange);
+                    case VelocityPhysicsMode.None:
+                        _activeVel = _inputSpeed * _inputDirection;
                         break;
-                    case VelocityMode.Advanced:
-                        _activeVel = CalculatePhysicsVelocity(_activeVel, InputSpeed, InputDirection, deltaTime: Time.deltaTime,
+                    case VelocityPhysicsMode.Simple:
+                        _activeVel = CalculatePhysicsVelocitySimple(_activeVel, _inputSpeed * _inputDirection, _speedChange);
+                        break;
+                    case VelocityPhysicsMode.Advanced:
+                        _activeVel = CalculatePhysicsVelocity(_activeVel, _inputSpeed, _inputDirection, deltaTime: Time.deltaTime,
                             _velocityConfig.Accel, _velocityConfig.Decel,
                             _velocityConfig.Friction, _velocityConfig.BrakingFriction);
                         break;
                 }
             }
 
-            Vector3 _finalVel = _activeVel + _passiveVel;
+            // Apply impulses.
+            Vector3 impulseVel = Vector3.zero;
+            for (int i = _impulses.Count - 1; i >= 0; i--)
+            {
+                Impulse impulse = _impulses[i];
+                Vector3 thisImpulseVel = impulse.Evaluate(deltaTime);
 
+                // If flagged as use max speed,
+                // limit this impulse speed so the final result not exceed its max speed when combined with the active velocity.
+                if (impulse.SpeedModeFlag == Impulse.SpeedMode.Max)
+                {
+                    thisImpulseVel = Vector3.ClampMagnitude(thisImpulseVel, impulse.MaxSpeed - _activeVel.magnitude);
+                }
+
+                // If flagged as align to ground.
+                if (impulse.AlignToGroundFlag == true)
+                {
+                    thisImpulseVel = AlignVelocityToNormal(thisImpulseVel, _groundNormal);
+                }
+
+                impulseVel += thisImpulseVel;
+                if (!impulse.IsActive) _impulses.RemoveAt(i);
+            }
+
+
+            Vector3 _adjustedActiveVel = AlignVelocityToNormal(_activeVel, _groundNormal);
+
+#if UNITY_EDITOR
+            // Ground normal.
+            Debug.DrawLine(transform.position, transform.position + _groundNormal, Color.white);
+            // Desired velocity line.
+            Debug.DrawLine(transform.position, transform.position + _adjustedActiveVel, Color.yellow);
+#endif
+
+
+            Vector3 _finalVel = _hasDirectVel ? _directVel 
+                : _adjustedActiveVel + _connectedVel + impulseVel;
             Move(_finalVel);
 
             // Clean up.
-            InputSpeed = 0f;
-            InputDirection = Vector3.zero;
             if (_activeVel != Vector3.zero) _nonZeroActiveDirection = _activeVel.normalized;
+            _inputSpeed = 0f;
+            _inputDirection = Vector3.zero;
+            _hasDirectVel = false;
         }
+        #endregion
 
-        public void Move(Vector3 velocity)
+        #region Movement Methods
+        // Internal method for moving.
+        private void Move(Vector3 velocity)
         {
             Rigidbody.velocity = velocity;
         }
+
+        /// <summary>
+        /// Move by setting active movement velocity using the provided input speed and direction.
+        /// Active movement velocity is subject to velocity physics calculations.
+        /// </summary>
+        /// <param name="inputSpeed"></param>
+        /// <param name="inputDirection"></param>
+        public void ActiveMove(float inputSpeed, Vector3 inputDirection)
+        {
+            _inputSpeed = inputSpeed;
+            _inputDirection = inputDirection;
+        }
+
+        /// <summary>
+        /// Move by setting direct velocity, bypassing active velocity and velocity physics calculations.
+        /// </summary>
+        /// <param name="velocity"></param>
+        /// <param name="restrictToGround">If true, only move if the movement will not cause us to lose ground contact.</param>
+        /// <param name="ignoreConnectedGround">If true, ignore base velocity from connected body.</param>
+        public void DirectMove(Vector3 velocity, bool restrictToGround = false, bool ignoreConnectedGround = false)
+        {
+            if (ignoreConnectedGround)
+            {
+                _directVel = velocity;
+            }
+            else
+            {
+                _directVel = velocity + _connectedVel;
+            }
+            _hasDirectVel = true;
+        }
+        #endregion
+
+        #region Impulse Methods
+        public void AddImpulse(Impulse impulse)
+        {
+            // If impulse already exists, restart it. Otherwise add impulse.
+            // We expect to deal with only 1~10 impulses max, so this should work fine. 
+            if (_impulses.Contains(impulse))
+            {
+                impulse.Start();
+            }
+            else
+            {
+                _impulses.Add(impulse);
+            }
+        }
+
+        public void RemoveImpulse(Impulse impulse)
+        {
+            _impulses.Remove(impulse);
+        }
+        #endregion
 
         #region Velocity Physics Methods
         private Vector3 CalculatePhysicsVelocitySimple(Vector3 currentVel, Vector3 desiredVel, float accel = kMaxSpeedChange)
@@ -144,9 +319,9 @@ namespace NekoNeko
 
 #if UNITY_EDITOR
             // Desired velocity line.
-            Debug.DrawLine(transform.position, transform.position + desiredVel, Color.yellow);
+            Debug.DrawLine(transform.position, transform.position + desiredVel, Color.gray);
             // Final velocity line.
-            Debug.DrawLine(transform.position, transform.position + finalVel, Color.green);
+            Debug.DrawLine(transform.position, transform.position + finalVel, Color.black);
 #endif
 
             return finalVel;
@@ -192,9 +367,9 @@ namespace NekoNeko
 
 #if UNITY_EDITOR
             // Desired velocity line.
-            Debug.DrawLine(transform.position, transform.position + desiredVel, Color.yellow);
+            Debug.DrawLine(transform.position, transform.position + desiredVel, Color.gray);
             // Final velocity line.
-            Debug.DrawLine(transform.position, transform.position + currentVel, Color.green);
+            Debug.DrawLine(transform.position, transform.position + currentVel, Color.black);
 #endif
 
             return currentVel;
@@ -227,6 +402,15 @@ namespace NekoNeko
             if (sqrSpeed <= 0.001f || !isZeroDecel && sqrSpeed <= 0.01f) return Vector3.zero;
 
             return currentVel;
+        }
+        #endregion
+
+        #region Velocity Manipulation Methods
+        private Vector3 AlignVelocityToNormal(Vector3 velocity, Vector3 normal)
+        {
+            float speed = velocity.magnitude;
+            Vector3 alignedDirection = Quaternion.FromToRotation(Vector3.up, normal) * velocity.normalized;
+            return speed * alignedDirection.normalized;
         }
         #endregion
 
