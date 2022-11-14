@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 
 namespace NekoNeko
 {
-    public class CharacterMover : BaseCharacterMover
+    public class CharacterMover : MonoBehaviour, ICharacterMover
     {
         public const float kMaxSpeedChange = 50f;
 
@@ -34,14 +35,24 @@ namespace NekoNeko
         [Tooltip("Surfaces with normal below this angle is considered as ground.")]
         [SerializeField][Range(0f, 90f)] private float _groundAngleLimit = 90f;
         [Tooltip("Surfaces with normal below this angle is considered as flat ground.")]
-        [SerializeField][Range(0f, 90f)] private float _flatGroundAngleLimit = 60f;
+        [SerializeField][Range(0f, 90f)] private float _flatGroundAngleLimit = 70f;
         [SerializeField][Min(0f)] private float _groundProbeRange = 10f;
-        [SerializeField][Min(0f)] private float _groundThresholdRange = 0f;
+        [SerializeField][Min(0f)] private float _groundProbeThickness = 0.2f;
+        [Tooltip("Minimum extra ground threshold distance for snapping to ground. The greater value between step height and this value will be used.")]
+        [SerializeField][Min(0f)] protected float _minExtraGroundThreshold = 0.1f;
+        [Tooltip("Factor to multiply by desired ground distance to account for floating point errors.")]
+        [SerializeField][Min(0)] protected float groundCheckToleranceFactor = 0.01f;
         [SerializeField][Min(0f)] private float _stepHeight = 0.4f;
         [SerializeField][Min(0f)] private float _stepSearchOvershoot = 0.01f;
+        [SerializeField][Min(1f)] private float _stepSmooth = 5f;
         #endregion
 
         #region Properties
+        public bool IsOnGround { get; set; }
+        public bool IsOnFlatGround { get; set; }
+        public Vector3 GroundNormal { get; set; }
+        public float GroundHeight { get; set; }
+
         public Rigidbody Rigidbody { get; private set; }
         public Collider Collider { get; private set; }
         public Vector3 ColliderCenter { get => _capsuleCollider.bounds.center; }
@@ -50,7 +61,6 @@ namespace NekoNeko
         /// Capsule collider height.
         /// </summary>
         public float Height { get => _height; set { _height = value; UpdateColliderHeight(); } }
-
         /// <summary>
         /// Capsule collider thickness is equal to 2 times its radius.
         /// </summary>
@@ -59,7 +69,6 @@ namespace NekoNeko
         public VelocityConfig VelocityConfig { get => _velocityConfig; set => _velocityConfig = value; }
 
         public bool ShouldSnapToGround { get => _shouldSnapToGround; set => _shouldSnapToGround = value; }
-        public float GroundProbeRange { get => _groundProbeRange; set => _groundProbeRange = value; }
         public float GroundAngleLimit {
             get => _groundAngleLimit;
             set {
@@ -74,10 +83,23 @@ namespace NekoNeko
                 _minFlatGroundAngleDot = Mathf.Cos(value * Mathf.Deg2Rad);
             }
         }
+        public float GroundProbeRange { get => _groundProbeRange; set => _groundProbeRange = value; }
+
+        /// <summary>
+        /// If true, extend desired ground distance by step height to snap to ground when going downstairs.
+        /// Updates ground threshold distance.
+        /// </summary>
+        public bool UseExtraGroundThresholdDistance {
+            get {
+                return _useExtraGroundThresholdDistance;
+            }
+            set {
+                _useExtraGroundThresholdDistance = value;
+            }
+        }
         #endregion
 
         #region Fields
-
         // Convenience cache for collider.
         private CapsuleCollider _capsuleCollider;
         private float _capsuleHalfHeight;
@@ -96,24 +118,38 @@ namespace NekoNeko
         private Vector3 _activeVel = Vector3.zero;
         // Previous nonzero active vel direction.
         private Vector3 _nonZeroActiveDirection = Vector3.zero;
-
         // Passive velocity, overrides active velocity and bypasses all velocity physics.
         private Vector3 _directVel = Vector3.zero;
         private bool _hasDirectVel = false;
-
         // Base velocity contribution from connected body.
         private Vector3 _connectedVel;
-
+        // Ground step height velocity;
+        private Vector3 _groundStepVel;
         // Last frame rigidbody velocity.
         private Vector3 _lastVel;
 
+        // Ground state.
+        private bool _wasOnGround = false;
+        private bool _hasGroundStateChanged = false;
+
+        // Ground contact.
         private int _groundCollisionCount = 0;
         private Vector3 _groundNormal = Vector3.up;
         private float _groundHeight = 0f;
 
-        // Ground contact state.
-        private bool _wasOnGround = false;
+        // Ground probing.
+        private bool _useExtraGroundThresholdDistance = false;
+        // Extra ground threshold distance for maintaining grounded when going down stairs or slopes.
+        private float _extraGroundThresholdDistance;
+        // Desired ground distance from collider center.
+        private float _desiredGroundDistance;
+        // Ground probe range.
+        private float _totalGroundProbeRange;
+        #endregion
 
+        #region Events
+        public event Action GainedGroundContact;
+        public event Action LostGroundContact;
         #endregion
 
         #region MonoBehaviour
@@ -128,6 +164,7 @@ namespace NekoNeko
         private void Awake()
         {
             OnValidate();
+            UseExtraGroundThresholdDistance = true;
         }
 
         private void FixedUpdate()
@@ -139,11 +176,23 @@ namespace NekoNeko
             IsOnGround = false;
             _groundNormal = Vector3.up;
             _groundHeight = 0f;
+            _groundStepVel = Vector3.zero;
+            _hasGroundStateChanged = false;
 
-            // Update ground.
+            // Update ground. Find ground and snap to it if should snap to ground.
             IsOnGround = FindGround(out _groundNormal, out _groundHeight, _collisions);
-            if (!_wasOnGround && IsOnGround) InvokeGainedGroundContact();
-            else if (_wasOnGround && !IsOnGround) InvokeLostGroundContact();
+            if (!_wasOnGround && IsOnGround)
+            {
+                _hasGroundStateChanged = true;
+                GainedGroundContact.Invoke();
+                UseExtraGroundThresholdDistance = true;
+            }
+            else if (_wasOnGround && !IsOnGround)
+            {
+                _hasGroundStateChanged = true;
+                LostGroundContact.Invoke();
+                UseExtraGroundThresholdDistance = false;
+            }
             _wasOnGround = IsOnGround;
 
             // Update movement.
@@ -164,6 +213,153 @@ namespace NekoNeko
             _collisions.Add(collision);
         }
 
+        #endregion
+
+        #region Ground Detection Methods
+        /// <summary>
+        /// Find ground by iterating through every collision contact point and checking the contact normal.
+        /// Outputs average ground normal.
+        /// </summary>
+        /// <param name="groundNormal"></param>
+        /// <param name="collisions"></param>
+        /// <returns></returns>
+        private bool FindGround(out Vector3 groundNormal, out float groundHeight, List<Collision> collisions)
+        {
+            bool found = false;
+            Vector3 accGroundNormal = Vector3.zero;
+            groundHeight = 0f;
+            int groundCollisionCount = 0;
+            for (int i = 0; i < collisions.Count; i++)
+            {
+                Collision collision = collisions[i];
+
+                // Calculate average ground normal and height for contacts in this collision.
+                bool isGroundCollision = false;
+                int groundContactCount = 0;
+                Vector3 accGroundCollisionNormal = Vector3.zero; // Average ground contact normal.
+                for (int j = 0; j < collision.contactCount; j++)
+                {
+                    ContactPoint contact = collision.GetContact(j);
+                    if (contact.normal.y > _minGroundAngleDot + 0.001f)
+                    {
+                        found = true;
+                        isGroundCollision = true;
+                        accGroundCollisionNormal = contact.normal;
+                        groundContactCount++;
+                        // Update average ground height.
+                        groundHeight = groundHeight * (groundContactCount - 1) / groundContactCount
+                            + (contact.point.y / groundContactCount);
+                    }
+                }
+                // This is a ground collision if it contains ground contacts.
+                if (isGroundCollision)
+                {
+                    accGroundNormal += (accGroundCollisionNormal / (float)groundContactCount);
+                    groundCollisionCount++;
+                }
+            }
+            // Average ground normal from all ground collisions.
+            groundNormal = found ? accGroundNormal / (float)groundCollisionCount : Vector3.up;
+
+            // Ground probing.
+            bool foundProbedGround = false;
+            Vector3 probedGroundNormal = Vector3.zero;
+            float probedGroundHeight = 0f;
+            float groundDistance = 0f;
+            foundProbedGround = ProbeGround(out probedGroundNormal, out probedGroundHeight, out groundDistance, _totalGroundProbeRange);
+            if (foundProbedGround)
+            {
+                groundNormal = probedGroundNormal;
+                groundHeight = probedGroundHeight;
+                _groundStepVel = CalcGroundStepVel(groundDistance, Time.deltaTime);
+                found = true;
+            }
+            else
+            {
+                found = false;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Probe ground from origin downwards for a specified range.
+        /// </summary>
+        /// <param name="groundNormal"></param>
+        /// <param name="groundHeight"></param>
+        /// <param name="origin"></param>
+        /// <param name="range"></param>
+        /// <param name="groundThresholdRange"></param>
+        /// <returns></returns>
+        private bool ProbeGround(out Vector3 groundNormal, out float groundHeight, out float groundDistance, float range)
+        {
+            bool isGroundInRange = false;
+            groundNormal = Vector3.zero;
+            groundHeight = 0f;
+            groundDistance = 0f;
+
+            RaycastHit hitInfo;
+            Vector3 origin = ColliderCenter;
+            bool hasHit = false;
+            if (_groundProbeThickness <= 0f)
+            {
+                hasHit = Physics.Raycast(new Ray(origin, Vector3.down), out hitInfo, maxDistance: _totalGroundProbeRange);
+            }
+            else
+            {
+                hasHit = Physics.SphereCast(new Ray(origin, Vector3.down), _groundProbeThickness / 2f, out hitInfo, maxDistance: _totalGroundProbeRange);
+            }
+#if UNITY_EDITOR
+            Vector3 desiredGroundPoint = origin - new Vector3(0f, _desiredGroundDistance, 0f);
+            // Desired ground distance.
+            Debug.DrawLine(origin, desiredGroundPoint, Color.green);
+            // Extra ground threshold distance.
+            Debug.DrawLine(desiredGroundPoint, desiredGroundPoint - new Vector3(0f, _extraGroundThresholdDistance, 0f), Color.grey);
+#endif
+            if (hasHit)
+            {
+                groundDistance = origin.y - hitInfo.point.y;
+                if (isWithinGround(groundDistance))
+                {
+                    isGroundInRange = true;
+                    groundNormal = hitInfo.normal;
+                    groundHeight = hitInfo.point.y;
+                }
+            }
+            return isGroundInRange;
+        }
+
+        /// <summary>
+        /// Calculate the adjustment floating velocity needed to maintain desired ground distance (step height).
+        /// </summary>
+        /// <param name="groundDistance"></param>
+        /// <param name="deltaTime"></param>
+        /// <returns></returns>
+        private Vector3 CalcGroundStepVel(float groundDistance, float deltaTime)
+        {
+            float requiredDelta = (_capsuleHalfHeight + _stepHeight) - groundDistance;
+            if (_hasGroundStateChanged)
+            {
+                return Vector3.up * (requiredDelta / deltaTime);
+            }
+            else
+            {
+                return Vector3.up * (requiredDelta / (deltaTime * _stepSmooth));
+            }
+        }
+
+        /// <summary>
+        /// Returns true if the provided ground distance is within ground distance threshold.
+        /// </summary>
+        /// <param name="groundDistance"></param>
+        /// <returns></returns>
+        public bool isWithinGround(float groundDistance)
+        {
+            float groundThresholdDistance = _useExtraGroundThresholdDistance ?
+                _desiredGroundDistance + _extraGroundThresholdDistance
+                : _desiredGroundDistance;
+
+            return groundDistance <= groundThresholdDistance;
+        }
         #endregion
 
         #region Movement Processing Methods
@@ -205,11 +401,14 @@ namespace NekoNeko
                 {
                     thisImpulseVel = Vector3.ClampMagnitude(thisImpulseVel, impulse.MaxSpeed - _activeVel.magnitude);
                 }
-
                 // If flagged as align to ground.
                 if (impulse.AlignToGroundFlag == true)
                 {
                     thisImpulseVel = AlignVelocityToNormal(thisImpulseVel, _groundNormal);
+                }
+                // If flagged as leave ground.
+                if (impulse.LeaveGroundFlag == true)
+                {
                 }
 
                 impulseVel += thisImpulseVel;
@@ -221,7 +420,7 @@ namespace NekoNeko
 
 #if UNITY_EDITOR
             // Ground normal.
-            Debug.DrawLine(transform.position, transform.position + _groundNormal, Color.blue);
+            //Debug.DrawLine(transform.position, transform.position + _groundNormal, Color.blue);
             // Desired velocity line.
             Debug.DrawLine(transform.position, transform.position + _adjustedActiveVel, Color.yellow);
 #endif
@@ -237,46 +436,6 @@ namespace NekoNeko
             _inputSpeed = 0f;
             _inputDirection = Vector3.zero;
             _hasDirectVel = false;
-        }
-        #endregion
-
-        #region Movement Methods
-        // Internal method for moving.
-        private void Move(Vector3 velocity)
-        {
-            Rigidbody.velocity = velocity;
-        }
-
-        /// <summary>
-        /// Move by setting active movement velocity using the provided input speed and direction.
-        /// Active movement velocity is subject to velocity physics calculations.
-        /// </summary>
-        /// <param name="inputSpeed"></param>
-        /// <param name="inputDirection"></param>
-        public override void ActiveMove(float inputSpeed, Vector3 inputDirection)
-        {
-            _inputSpeed = inputSpeed;
-            _inputDirection = inputDirection;
-        }
-
-        /// <summary>
-        /// Move by setting direct velocity, bypassing active velocity and velocity physics calculations.
-        /// <para>Typically used to apply animation root motion.</para>
-        /// </summary>
-        /// <param name="velocity"></param>
-        /// <param name="restrictToGround">If true, only move if the movement will not cause us to lose ground contact.</param>
-        /// <param name="ignoreConnectedGround">If true, ignore base velocity from connected body.</param>
-        public override void DirectMove(Vector3 velocity, bool restrictToGround = false, bool ignoreConnectedGround = false)
-        {
-            if (ignoreConnectedGround)
-            {
-                _directVel = velocity;
-            }
-            else
-            {
-                _directVel = velocity + _connectedVel;
-            }
-            _hasDirectVel = true;
         }
         #endregion
 
@@ -378,7 +537,7 @@ namespace NekoNeko
         #endregion
 
         #region Impulse Methods
-        public override void AddImpulse(Impulse impulse)
+        public void AddImpulse(Impulse impulse)
         {
             // If impulse already exists, restart it. Otherwise add impulse.
             // We expect to deal with only 1~10 impulses max, so this should work fine. 
@@ -392,99 +551,50 @@ namespace NekoNeko
             }
         }
 
-        public override void RemoveImpulse(Impulse impulse)
+        public void RemoveImpulse(Impulse impulse)
         {
             _impulses.Remove(impulse);
         }
         #endregion
 
-        #region Ground Detection Methods
-        /// <summary>
-        /// Find ground by iterating through every collision contact point and checking the contact normal.
-        /// Outputs average ground normal.
-        /// </summary>
-        /// <param name="groundNormal"></param>
-        /// <param name="collisions"></param>
-        /// <returns></returns>
-        private bool FindGround(out Vector3 groundNormal, out float groundHeight, List<Collision> collisions)
+        #region Movement Methods
+        // Internal method for moving.
+        private void Move(Vector3 velocity)
         {
-            bool found = false;
-            int groundCollisionCount = 0;
-            Vector3 accGroundNormal = Vector3.zero;
-            groundHeight = 0f;
-            for (int i = 0; i < collisions.Count; i++)
-            {
-                Collision collision = collisions[i];
-
-                // Calculate average ground normal and height for contacts in this collision.
-                bool isGroundCollision = false;
-                int groundContactCount = 0;
-                Vector3 accGroundCollisionNormal = Vector3.zero; // Average ground contact normal.
-                for (int j = 0; j < collision.contactCount; j++)
-                {
-                    ContactPoint contact = collision.GetContact(j);
-                    if (contact.normal.y > _minGroundAngleDot + 0.001f)
-                    {
-                        found = true;
-                        isGroundCollision = true;
-                        accGroundCollisionNormal = contact.normal;
-                        groundContactCount++;
-                        // Update average ground height.
-                        groundHeight = groundHeight * (groundContactCount - 1) / groundContactCount
-                            + (contact.point.y / groundContactCount);
-                    }
-                }
-                // This is a ground collision if it contains ground contacts.
-                if (isGroundCollision)
-                {
-                    accGroundNormal += (accGroundCollisionNormal / (float)groundContactCount);
-                    groundCollisionCount++;
-                }
-            }
-            // Average ground normal from all ground collisions.
-            groundNormal = found ? accGroundNormal / (float)groundCollisionCount : Vector3.up;
-
-            // Ground probing and snapping.
-            Vector3 probedGroundNormal = Vector3.zero;
-            float probedGroundHeight = 0f;
-            bool foundProbedGround = false;
-            foundProbedGround = ProbeGround(out probedGroundNormal, out probedGroundHeight, _groundProbeRange);
-
-            return found;
+            if (ShouldSnapToGround) Rigidbody.velocity = velocity + _groundStepVel;
+            else Rigidbody.velocity = velocity;
         }
 
         /// <summary>
-        /// Probe ground from origin downwards for a specified range.
+        /// Move by setting active movement velocity using the provided input speed and direction.
+        /// Active movement velocity is subject to velocity physics calculations.
         /// </summary>
-        /// <param name="groundNormal"></param>
-        /// <param name="groundHeight"></param>
-        /// <param name="origin"></param>
-        /// <param name="range"></param>
-        /// <param name="groundThresholdRange"></param>
-        /// <returns></returns>
-        private bool ProbeGround(out Vector3 groundNormal, out float groundHeight, float range)
+        /// <param name="inputSpeed"></param>
+        /// <param name="inputDirection"></param>
+        public void InputMove(float inputSpeed, Vector3 inputDirection)
         {
-            bool isGroundInRange = false;
-            groundNormal = Vector3.zero;
-            groundHeight = 0f;
+            _inputSpeed = inputSpeed;
+            _inputDirection = inputDirection;
+        }
 
-            RaycastHit hitInfo;
-            Vector3 origin = ColliderCenter;
-            bool hasHit = Physics.Raycast(new Ray(origin, Vector3.down), out hitInfo, maxDistance: range);
-            if (hasHit)
+        /// <summary>
+        /// Move by setting direct velocity, bypassing active velocity and velocity physics calculations.
+        /// <para>Typically used to apply animation root motion.</para>
+        /// </summary>
+        /// <param name="velocity"></param>
+        /// <param name="restrictToGround">If true, only move if the movement will not cause us to lose ground contact.</param>
+        /// <param name="ignoreConnectedGround">If true, ignore base velocity from connected body.</param>
+        public void DirectMove(Vector3 velocity, bool restrictToGround = false, bool ignoreConnectedGround = false)
+        {
+            if (ignoreConnectedGround)
             {
-                float groundRange = Mathf.Max(_stepHeight, _groundThresholdRange);
-                if (origin.y - hitInfo.point.y <= groundRange)
-                {
-                    isGroundInRange = true;
-                    groundNormal = hitInfo.normal;
-                    groundHeight = hitInfo.point.y;
-#if UNITY_EDITOR
-                    Debug.DrawLine(origin, hitInfo.point, Color.green);
-#endif
-                }
+                _directVel = velocity;
             }
-            return isGroundInRange;
+            else
+            {
+                _directVel = velocity + _connectedVel;
+            }
+            _hasDirectVel = true;
         }
         #endregion
 
@@ -586,12 +696,14 @@ namespace NekoNeko
 
         private void UpdateColliderHeight()
         {
-            _capsuleCollider.height = _height;
-            _capsuleHalfHeight = _capsuleCollider.height / 2f;
-            Vector3 center = _colliderOffset + new Vector3(0f, _capsuleHalfHeight, 0f);
+            if (_stepHeight > _height) _stepHeight = _height;
+            Vector3 center = _colliderOffset + new Vector3(0f, _height / 2f, 0f);
+            center.y += _stepHeight / 2f;
             _capsuleCollider.center = center;
+            _capsuleCollider.height = _height - _stepHeight;
+            _capsuleHalfHeight = _capsuleCollider.height / 2f;
             LimitRadius();
-
+            UpdateGroundCheckDimensions();
         }
 
         public void UpdateColliderRadius()
@@ -599,6 +711,18 @@ namespace NekoNeko
             float radius = _thickness / 2f;
             _capsuleCollider.radius = radius;
             LimitRadius();
+        }
+
+        protected void UpdateGroundCheckDimensions()
+        {
+            // Update desired ground distance.
+            _desiredGroundDistance = (_capsuleHalfHeight + _stepHeight) * (1 + groundCheckToleranceFactor);
+            // Update extra ground threshold distance used to snap to ground when going down stairs or slopes.
+            _extraGroundThresholdDistance = Mathf.Max(_stepHeight, _minExtraGroundThreshold);
+            // Update total length for ground probing.
+            _totalGroundProbeRange = _desiredGroundDistance + _groundProbeRange;
+
+            UseExtraGroundThresholdDistance = false;
         }
 
         /// <summary>

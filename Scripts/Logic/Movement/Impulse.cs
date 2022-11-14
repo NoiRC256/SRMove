@@ -41,6 +41,10 @@ namespace NekoNeko
         /// Speed mode flag. Suggests how to handle speed from this impulse.
         /// </summary>
         public SpeedMode SpeedModeFlag { get => _config.SpeedMode; set => _config.SpeedMode = value; }
+        /// <summary>
+        /// Leave ground flag. If true, suggests to disable ground snapping.
+        /// </summary>
+        public bool LeaveGroundFlag { get => _config.LeaveGround; set => _config.LeaveGround = value; }
 
         private ImpulseConfig _config;
         private float _counter;
@@ -100,6 +104,7 @@ namespace NekoNeko
         [Header("Flags")]
         [SerializeField] private bool _alignToGround = false;
         [SerializeField] private Impulse.SpeedMode _speedMode = Impulse.SpeedMode.Add;
+        [SerializeField] private bool _leaveGround = true;
 
         public float MaxSpeed { get => _maxSpeed; set => _maxSpeed = value; }
         public Vector3 Direction { get => _direction; set => _direction = value; }
@@ -108,5 +113,6 @@ namespace NekoNeko
         public bool HoldOnComplete { get => _holdOnComplete; set => _holdOnComplete = value; }
         public bool AlignToGround { get => _alignToGround; set => _alignToGround = value; }
         public Impulse.SpeedMode SpeedMode { get => _speedMode; set => _speedMode = value; }
+        public bool LeaveGround { get => _leaveGround; set => _leaveGround = value; }
     }
 }
