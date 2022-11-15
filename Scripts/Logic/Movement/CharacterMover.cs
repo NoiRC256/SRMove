@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Unity.VisualScripting;
 using UnityEngine;
+using static UnityEngine.UI.Image;
 
 namespace NekoNeko
 {
@@ -131,6 +132,8 @@ namespace NekoNeko
         // Ground state.
         private bool _wasOnGround = false;
         private bool _hasGroundStateChanged = false;
+        private bool _isTouchingGround = false;
+        private bool _isTouchingCeiling = false;
 
         // Ground contact.
         private int _groundCollisionCount = 0;
@@ -179,21 +182,11 @@ namespace NekoNeko
             _groundStepVel = Vector3.zero;
             _hasGroundStateChanged = false;
 
-            // Update ground. Find ground and snap to it if should snap to ground.
-            IsOnGround = FindGround(out _groundNormal, out _groundHeight, _collisions);
-            if (!_wasOnGround && IsOnGround)
-            {
-                _hasGroundStateChanged = true;
-                GainedGroundContact.Invoke();
-                UseExtraGroundThresholdDistance = true;
-            }
-            else if (_wasOnGround && !IsOnGround)
-            {
-                _hasGroundStateChanged = true;
-                LostGroundContact.Invoke();
-                UseExtraGroundThresholdDistance = false;
-            }
-            _wasOnGround = IsOnGround;
+            // Evaluate collisions.
+            Vector3 collisionGroundNormal;
+            float collisionGroundHeight;
+            EvaluateContacts(out _isTouchingGround, out _isTouchingCeiling,
+                out collisionGroundNormal, out collisionGroundHeight, _collisions);
 
             // Update movement.
             UpdateMovement();
@@ -217,88 +210,118 @@ namespace NekoNeko
 
         #region Ground Detection Methods
         /// <summary>
-        /// Find ground by iterating through every collision contact point and checking the contact normal.
-        /// Outputs average ground normal.
+        /// Iterate through every collision contact point and perform checks.
         /// </summary>
-        /// <param name="groundNormal"></param>
-        /// <param name="collisions"></param>
-        /// <returns></returns>
-        private bool FindGround(out Vector3 groundNormal, out float groundHeight, List<Collision> collisions)
+        private bool EvaluateContacts(out bool isTouchingGround, out bool isTouchingCeiling,
+            out Vector3 groundNormal, out float groundHeight, List<Collision> collisions)
         {
-            bool found = false;
+            bool hasContact = false;
+            isTouchingGround = false;
+            isTouchingCeiling = false;
+
+            int groundCollisionCount = 0;
             Vector3 accGroundNormal = Vector3.zero;
             groundHeight = 0f;
-            int groundCollisionCount = 0;
+
+            // For each collision.
             for (int i = 0; i < collisions.Count; i++)
             {
                 Collision collision = collisions[i];
-
-                // Calculate average ground normal and height for contacts in this collision.
                 bool isGroundCollision = false;
                 int groundContactCount = 0;
-                Vector3 accGroundCollisionNormal = Vector3.zero; // Average ground contact normal.
+                Vector3 accGroundContactsNormal = Vector3.zero; // Average ground normal from a collision.
+
+                // For each contact in a collision.
                 for (int j = 0; j < collision.contactCount; j++)
                 {
                     ContactPoint contact = collision.GetContact(j);
+                    hasContact = true;
+
+                    // If is ground contact.
                     if (contact.normal.y > _minGroundAngleDot + 0.001f)
                     {
-                        found = true;
+                        isTouchingGround = true;
                         isGroundCollision = true;
-                        accGroundCollisionNormal = contact.normal;
+                        accGroundContactsNormal = contact.normal;
                         groundContactCount++;
                         // Update average ground height.
                         groundHeight = groundHeight * (groundContactCount - 1) / groundContactCount
                             + (contact.point.y / groundContactCount);
                     }
+                    // If is ceiling contact.
+                    else if (contact.normal.y < 0f)
+                    {
+                        isTouchingCeiling = true;
+                    }
                 }
-                // This is a ground collision if it contains ground contacts.
+                // If this is a ground collision.
                 if (isGroundCollision)
                 {
-                    accGroundNormal += (accGroundCollisionNormal / (float)groundContactCount);
+                    // Accumulate ground normal from this collision.
+                    accGroundNormal += (accGroundContactsNormal / (float)groundContactCount);
                     groundCollisionCount++;
                 }
             }
             // Average ground normal from all ground collisions.
-            groundNormal = found ? accGroundNormal / (float)groundCollisionCount : Vector3.up;
+            groundNormal = isTouchingGround ? accGroundNormal / (float)groundCollisionCount : Vector3.up;
 
+            return hasContact;
+        }
+
+        /// <summary>
+        /// Evaluate ground probing and update ground floating adjustment velocity.
+        /// </summary>
+        /// <param name="groundInfo"></param>
+        /// <returns></returns>
+        private bool EvaluateProbeGround(out GroundInfo groundInfo)
+        {
+            return EvaluateProbeGround(out groundInfo, Vector3.zero);
+        }
+
+        /// <summary>
+        /// Evaluate ground probing and update ground floating adjustment velocity.
+        /// </summary>
+        /// <param name="groundInfo"></param>
+        /// <param name="velocity"></param>
+        /// <returns></returns>
+        private bool EvaluateProbeGround(out GroundInfo groundInfo, Vector3 velocity)
+        {
+            groundInfo = GroundInfo.Empty;
             // Ground probing.
-            bool foundProbedGround = false;
-            Vector3 probedGroundNormal = Vector3.zero;
-            float probedGroundHeight = 0f;
-            float groundDistance = 0f;
-            foundProbedGround = ProbeGround(out probedGroundNormal, out probedGroundHeight, out groundDistance, _totalGroundProbeRange);
-            if (foundProbedGround)
+            bool isOnGround = false;
+            isOnGround = ProbeGround(out groundInfo, _totalGroundProbeRange, ColliderCenter + velocity);
+            // Update ground floating adjustment velocity.
+            if (isOnGround)
             {
-                groundNormal = probedGroundNormal;
-                groundHeight = probedGroundHeight;
-                _groundStepVel = CalcGroundStepVel(groundDistance, Time.deltaTime);
-                found = true;
+                _groundStepVel = CalcGroundStepVel(groundInfo.Distance, Time.deltaTime);
             }
-            else
-            {
-                found = false;
-            }
-            return found;
+            return isOnGround;
+        }
+
+        /// <summary>
+        /// Probe ground from collider center downwards for a specified range.
+        /// </summary>
+        /// <param name="groundInfo"></param>
+        /// <param name="range"></param>
+        /// <returns></returns>
+        private bool ProbeGround(out GroundInfo groundInfo, float range)
+        {
+            return ProbeGround(out groundInfo, range, ColliderCenter);
         }
 
         /// <summary>
         /// Probe ground from origin downwards for a specified range.
         /// </summary>
-        /// <param name="groundNormal"></param>
-        /// <param name="groundHeight"></param>
-        /// <param name="origin"></param>
+        /// <param name="groundInfo"></param>
         /// <param name="range"></param>
-        /// <param name="groundThresholdRange"></param>
+        /// <param name="origin"></param>
         /// <returns></returns>
-        private bool ProbeGround(out Vector3 groundNormal, out float groundHeight, out float groundDistance, float range)
+        private bool ProbeGround(out GroundInfo groundInfo, float range, Vector3 origin)
         {
+            groundInfo = GroundInfo.Empty;
             bool isGroundInRange = false;
-            groundNormal = Vector3.zero;
-            groundHeight = 0f;
-            groundDistance = 0f;
 
             RaycastHit hitInfo;
-            Vector3 origin = ColliderCenter;
             bool hasHit = false;
             if (_groundProbeThickness <= 0f)
             {
@@ -308,6 +331,7 @@ namespace NekoNeko
             {
                 hasHit = Physics.SphereCast(new Ray(origin, Vector3.down), _groundProbeThickness / 2f, out hitInfo, maxDistance: _totalGroundProbeRange);
             }
+
 #if UNITY_EDITOR
             Vector3 desiredGroundPoint = origin - new Vector3(0f, _desiredGroundDistance, 0f);
             // Desired ground distance.
@@ -315,16 +339,19 @@ namespace NekoNeko
             // Extra ground threshold distance.
             Debug.DrawLine(desiredGroundPoint, desiredGroundPoint - new Vector3(0f, _extraGroundThresholdDistance, 0f), Color.grey);
 #endif
+
             if (hasHit)
             {
-                groundDistance = origin.y - hitInfo.point.y;
-                if (isWithinGround(groundDistance))
+                groundInfo.Distance = origin.y - hitInfo.point.y;
+                if (isWithinGround(groundInfo.Distance))
                 {
                     isGroundInRange = true;
-                    groundNormal = hitInfo.normal;
-                    groundHeight = hitInfo.point.y;
+                    groundInfo.Normal = hitInfo.normal;
+                    groundInfo.Point = hitInfo.point;
                 }
             }
+
+            groundInfo.IsOnGround = isGroundInRange;
             return isGroundInRange;
         }
 
@@ -337,14 +364,12 @@ namespace NekoNeko
         private Vector3 CalcGroundStepVel(float groundDistance, float deltaTime)
         {
             float requiredDelta = (_capsuleHalfHeight + _stepHeight) - groundDistance;
-            if (_hasGroundStateChanged)
-            {
-                return Vector3.up * (requiredDelta / deltaTime);
-            }
-            else
-            {
-                return Vector3.up * (requiredDelta / (deltaTime * _stepSmooth));
-            }
+            bool shouldGoUp = requiredDelta > 0f;
+            bool shouldGoDown = requiredDelta < 0f;
+            Vector3 vel;
+            if (_hasGroundStateChanged || _isTouchingCeiling) vel = Vector3.up * (requiredDelta / deltaTime);
+            else vel = Vector3.up * (requiredDelta / (deltaTime * _stepSmooth));
+            return vel;
         }
 
         /// <summary>
@@ -415,7 +440,6 @@ namespace NekoNeko
                 if (!impulse.IsActive) _impulses.RemoveAt(i);
             }
 
-
             Vector3 _adjustedActiveVel = AlignVelocityToNormal(_activeVel, _groundNormal);
 
 #if UNITY_EDITOR
@@ -425,9 +449,25 @@ namespace NekoNeko
             Debug.DrawLine(transform.position, transform.position + _adjustedActiveVel, Color.yellow);
 #endif
 
-
             Vector3 _finalVel = _hasDirectVel ? _directVel
                 : _adjustedActiveVel + _connectedVel + impulseVel;
+
+            // Predict and evaluate ground.
+            GroundInfo probedGroundInfo;
+            IsOnGround = EvaluateProbeGround(out probedGroundInfo, _finalVel * Time.deltaTime); ;
+            if (!_wasOnGround && IsOnGround)
+            {
+                _hasGroundStateChanged = true;
+                GainedGroundContact.Invoke();
+                UseExtraGroundThresholdDistance = true;
+            }
+            else if (_wasOnGround && !IsOnGround)
+            {
+                _hasGroundStateChanged = true;
+                LostGroundContact.Invoke();
+                UseExtraGroundThresholdDistance = false;
+            }
+            _wasOnGround = IsOnGround;
 
             Move(_finalVel);
 
