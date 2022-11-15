@@ -46,6 +46,7 @@ namespace NekoNeko
         [SerializeField][Min(0f)] private float _stepHeight = 0.4f;
         [SerializeField][Min(0f)] private float _stepSearchOvershoot = 0.01f;
         [SerializeField][Min(1f)] private float _stepSmooth = 5f;
+        [SerializeField] private bool _useRealGroundNormal = false;
         #endregion
 
         #region Properties
@@ -57,6 +58,7 @@ namespace NekoNeko
         public Rigidbody Rigidbody { get; private set; }
         public Collider Collider { get; private set; }
         public Vector3 ColliderCenter { get => _capsuleCollider.bounds.center; }
+        public GroundSensor GroundSensor { get; private set; }
 
         /// <summary>
         /// Capsule collider height.
@@ -87,15 +89,33 @@ namespace NekoNeko
         public float GroundProbeRange { get => _groundProbeRange; set => _groundProbeRange = value; }
 
         /// <summary>
-        /// If true, extend desired ground distance by step height to snap to ground when going downstairs.
-        /// Updates ground threshold distance.
+        /// If true, extend desired ground distance by step height to snap to ground when moving downstairs or slopes.
         /// </summary>
         public bool UseExtraGroundThresholdDistance {
-            get {
-                return _useExtraGroundThresholdDistance;
-            }
+            get => _useExtraGroundThresholdDistance;
             set {
                 _useExtraGroundThresholdDistance = value;
+                UpdateGroundSensorThresholdDistance();
+            }
+        }
+        /// <summary>
+        /// Extra ground threshold distance used to help snap to ground when moving downstairs or slopes.
+        /// </summary>
+        public float ExtraGroundThresholdDistance {
+            get => _extraGroundThresholdDistance;
+            set {
+                _extraGroundThresholdDistance = value;
+                UpdateGroundSensorThresholdDistance();
+            }
+        }
+        /// <summary>
+        /// Desired ground distance to maintain based on step height.
+        /// </summary>
+        public float DesiredGroundDistance {
+            get => _desiredGroundDistance;
+            set {
+                _desiredGroundDistance = value;
+                UpdateGroundSensorThresholdDistance();
             }
         }
         #endregion
@@ -175,6 +195,7 @@ namespace NekoNeko
 #if UNITY_EDITOR
             DrawContactNormals();
 #endif
+
             // Init frame.
             IsOnGround = false;
             _groundNormal = Vector3.up;
@@ -187,6 +208,11 @@ namespace NekoNeko
             float collisionGroundHeight;
             EvaluateContacts(out _isTouchingGround, out _isTouchingCeiling,
                 out collisionGroundNormal, out collisionGroundHeight, _collisions);
+
+            // Predict and evaluate ground.
+            GroundInfo probedGroundInfo;
+            IsOnGround = EvaluateProbeGround(out probedGroundInfo);
+            UpdateGroundState(IsOnGround);
 
             // Update movement.
             UpdateMovement();
@@ -282,77 +308,27 @@ namespace NekoNeko
         /// Evaluate ground probing and update ground floating adjustment velocity.
         /// </summary>
         /// <param name="groundInfo"></param>
-        /// <param name="velocity"></param>
+        /// <param name="deltaPos"></param>
         /// <returns></returns>
-        private bool EvaluateProbeGround(out GroundInfo groundInfo, Vector3 velocity)
+        private bool EvaluateProbeGround(out GroundInfo groundInfo, Vector3 deltaPos)
         {
             groundInfo = GroundInfo.Empty;
             // Ground probing.
             bool isOnGround = false;
-            isOnGround = ProbeGround(out groundInfo, _totalGroundProbeRange, ColliderCenter + velocity);
+            isOnGround = GroundSensor.ProbeGround(out groundInfo, _totalGroundProbeRange, _groundProbeThickness, ColliderCenter + deltaPos);
             // Update ground floating adjustment velocity.
             if (isOnGround)
             {
                 _groundStepVel = CalcGroundStepVel(groundInfo.Distance, Time.deltaTime);
+                _groundNormal = groundInfo.Normal;
+                _groundHeight = groundInfo.Point.y;
             }
-            return isOnGround;
-        }
-
-        /// <summary>
-        /// Probe ground from collider center downwards for a specified range.
-        /// </summary>
-        /// <param name="groundInfo"></param>
-        /// <param name="range"></param>
-        /// <returns></returns>
-        private bool ProbeGround(out GroundInfo groundInfo, float range)
-        {
-            return ProbeGround(out groundInfo, range, ColliderCenter);
-        }
-
-        /// <summary>
-        /// Probe ground from origin downwards for a specified range.
-        /// </summary>
-        /// <param name="groundInfo"></param>
-        /// <param name="range"></param>
-        /// <param name="origin"></param>
-        /// <returns></returns>
-        private bool ProbeGround(out GroundInfo groundInfo, float range, Vector3 origin)
-        {
-            groundInfo = GroundInfo.Empty;
-            bool isGroundInRange = false;
-
-            RaycastHit hitInfo;
-            bool hasHit = false;
-            if (_groundProbeThickness <= 0f)
-            {
-                hasHit = Physics.Raycast(new Ray(origin, Vector3.down), out hitInfo, maxDistance: _totalGroundProbeRange);
-            }
-            else
-            {
-                hasHit = Physics.SphereCast(new Ray(origin, Vector3.down), _groundProbeThickness / 2f, out hitInfo, maxDistance: _totalGroundProbeRange);
-            }
-
 #if UNITY_EDITOR
-            Vector3 desiredGroundPoint = origin - new Vector3(0f, _desiredGroundDistance, 0f);
+            Vector3 desiredGroundPoint = ColliderCenter + deltaPos - new Vector3(0f, DesiredGroundDistance, 0f);
             // Desired ground distance.
-            Debug.DrawLine(origin, desiredGroundPoint, Color.green);
-            // Extra ground threshold distance.
-            Debug.DrawLine(desiredGroundPoint, desiredGroundPoint - new Vector3(0f, _extraGroundThresholdDistance, 0f), Color.grey);
+            Debug.DrawLine(ColliderCenter + deltaPos, desiredGroundPoint, Color.green);
 #endif
-
-            if (hasHit)
-            {
-                groundInfo.Distance = origin.y - hitInfo.point.y;
-                if (isWithinGround(groundInfo.Distance))
-                {
-                    isGroundInRange = true;
-                    groundInfo.Normal = hitInfo.normal;
-                    groundInfo.Point = hitInfo.point;
-                }
-            }
-
-            groundInfo.IsOnGround = isGroundInRange;
-            return isGroundInRange;
+            return isOnGround;
         }
 
         /// <summary>
@@ -372,18 +348,28 @@ namespace NekoNeko
             return vel;
         }
 
-        /// <summary>
-        /// Returns true if the provided ground distance is within ground distance threshold.
-        /// </summary>
-        /// <param name="groundDistance"></param>
-        /// <returns></returns>
-        public bool isWithinGround(float groundDistance)
+        private void UpdateGroundState(bool isOnGround)
         {
-            float groundThresholdDistance = _useExtraGroundThresholdDistance ?
-                _desiredGroundDistance + _extraGroundThresholdDistance
-                : _desiredGroundDistance;
+            if (!_wasOnGround && IsOnGround)
+            {
+                _hasGroundStateChanged = true;
+                GainedGroundContact.Invoke();
+                UseExtraGroundThresholdDistance = true;
+            }
+            else if (_wasOnGround && !IsOnGround)
+            {
+                _hasGroundStateChanged = true;
+                LostGroundContact.Invoke();
+                UseExtraGroundThresholdDistance = false;
+            }
+            _wasOnGround = IsOnGround;
+        }
 
-            return groundDistance <= groundThresholdDistance;
+        private void UpdateGroundSensorThresholdDistance()
+        {
+            GroundSensor.GroundThresholdDistance = _useExtraGroundThresholdDistance ?
+                DesiredGroundDistance + ExtraGroundThresholdDistance
+                : DesiredGroundDistance;
         }
         #endregion
 
@@ -451,23 +437,6 @@ namespace NekoNeko
 
             Vector3 _finalVel = _hasDirectVel ? _directVel
                 : _adjustedActiveVel + _connectedVel + impulseVel;
-
-            // Predict and evaluate ground.
-            GroundInfo probedGroundInfo;
-            IsOnGround = EvaluateProbeGround(out probedGroundInfo, _finalVel * Time.deltaTime); ;
-            if (!_wasOnGround && IsOnGround)
-            {
-                _hasGroundStateChanged = true;
-                GainedGroundContact.Invoke();
-                UseExtraGroundThresholdDistance = true;
-            }
-            else if (_wasOnGround && !IsOnGround)
-            {
-                _hasGroundStateChanged = true;
-                LostGroundContact.Invoke();
-                UseExtraGroundThresholdDistance = false;
-            }
-            _wasOnGround = IsOnGround;
 
             Move(_finalVel);
 
@@ -724,6 +693,8 @@ namespace NekoNeko
             TryGetComponent(out CapsuleCollider capsuleCollider);
             Collider = capsuleCollider ? capsuleCollider : gameObject.AddComponent<CapsuleCollider>();
             _capsuleCollider = Collider as CapsuleCollider;
+
+            if (GroundSensor == null) GroundSensor = new GroundSensor();
         }
         #endregion
 
@@ -756,13 +727,13 @@ namespace NekoNeko
         protected void UpdateGroundCheckDimensions()
         {
             // Update desired ground distance.
-            _desiredGroundDistance = (_capsuleHalfHeight + _stepHeight) * (1 + groundCheckToleranceFactor);
+            DesiredGroundDistance = (_capsuleHalfHeight + _stepHeight) * (1 + groundCheckToleranceFactor);
             // Update extra ground threshold distance used to snap to ground when going down stairs or slopes.
-            _extraGroundThresholdDistance = Mathf.Max(_stepHeight, _minExtraGroundThreshold);
+            ExtraGroundThresholdDistance = Mathf.Max(_stepHeight, _minExtraGroundThreshold);
             // Update total length for ground probing.
-            _totalGroundProbeRange = _desiredGroundDistance + _groundProbeRange;
+            _totalGroundProbeRange = DesiredGroundDistance + _groundProbeRange;
 
-            UseExtraGroundThresholdDistance = false;
+            GroundSensor.UseRealGroundNormal = _useExtraGroundThresholdDistance;
         }
 
         /// <summary>
