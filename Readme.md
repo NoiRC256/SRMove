@@ -2,13 +2,13 @@
 NekoNekoMovement is a rigidbody physics character movement solution, designed as an alternative to Unity's Character Controller.
 
 ### Key Features ###
-:heavy_check_mark: Intuitive collider adjustment
-:heavy_check_mark: Ground detection
-:heavy_check_mark: Stair traversal with smoothing
-:heavy_check_mark: Slope traversal with ground snapping
-:heavy_check_mark: Tweakable acceleration, deceleration, friction
-:heavy_check_mark: Inherit moving platform velocity
-:heavy_check_mark: Versatile impulse system
+:heavy_check_mark: Intuitive collider adjustment  
+:heavy_check_mark: Ground detection  
+:heavy_check_mark: Stair traversal with smoothing  
+:heavy_check_mark: Slope traversal with ground snapping  
+:heavy_check_mark: Tweakable acceleration, deceleration, friction  
+:heavy_check_mark: Inherit moving platform velocity  
+:heavy_check_mark: Versatile impulse system  
 
 ### Environment ###
 

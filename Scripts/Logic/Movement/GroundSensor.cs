@@ -1,6 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
-using Unity.VisualScripting;
 using UnityEngine;
 
 namespace NekoNeko
@@ -8,6 +5,7 @@ namespace NekoNeko
     public class GroundSensor
     {
         public float GroundThresholdDistance { get; set; }
+        public LayerMask LayerMask { get; set; }
         public bool UseRealGroundNormal { get; set; }
 
         /// <summary>
@@ -15,9 +13,24 @@ namespace NekoNeko
         /// </summary>
         /// <param name="groundInfo"></param>
         /// <param name="range"></param>
+        /// <param name="thickness"></param>
         /// <param name="origin"></param>
         /// <returns></returns>
         public bool ProbeGround(out GroundInfo groundInfo, float range, float thickness, Vector3 origin)
+        {
+            return ProbeGround(out groundInfo, range, thickness, origin, LayerMask);
+        }
+
+        /// <summary>
+        /// Probe ground from origin downwards for a specified range.
+        /// </summary>
+        /// <param name="groundInfo"></param>
+        /// <param name="range"></param>
+        /// <param name="thickness"></param>
+        /// <param name="origin"></param>
+        /// <param name="layerMask"></param>
+        /// <returns></returns>
+        public bool ProbeGround(out GroundInfo groundInfo, float range, float thickness, Vector3 origin, LayerMask layerMask)
         {
             groundInfo = GroundInfo.Empty;
             bool isGroundInRange = false;
@@ -30,7 +43,7 @@ namespace NekoNeko
             }
             else
             {
-                hasHit = Physics.SphereCast(new Ray(origin, Vector3.down), thickness / 2f, out hitInfo, maxDistance: range);
+                hasHit = Physics.SphereCast(new Ray(origin, Vector3.down), thickness / 2f, out hitInfo, maxDistance: range, layerMask: layerMask);
             }
 
 #if UNITY_EDITOR

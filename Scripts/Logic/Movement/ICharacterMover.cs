@@ -8,7 +8,7 @@ namespace NekoNeko
         bool IsOnGround { get; set; }
         bool IsOnFlatGround { get; set; }
         Vector3 GroundNormal { get; set; }
-        float GroundHeight { get; set; }
+        Vector3 GroundPoint { get; set; }
 
         #region Events
         event Action GainedGroundContact;
