@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Unity.VisualScripting;
 using UnityEngine;
 
 namespace NekoNeko
@@ -53,8 +52,10 @@ namespace NekoNeko
         [SerializeField] private bool _useRealGroundNormal = true;
 
         [Header("Slope Detection")]
-        [SerializeField][Min(0f)] private float _slopeProbeFrontOffset = 0.5f;
-        [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 0.5f;
+        [SerializeField][Min(0f)] private float _slopeProbeFrontOffset = 0.3f;
+        [SerializeField][Range(1, 5)] private int _slopeProbeFrontCount = 2;
+        [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 0.3f;
+        [SerializeField][Range(1, 5)] private int _slopeProbeBackCount = 2;
         #endregion
 
         #region Properties
@@ -380,12 +381,12 @@ namespace NekoNeko
         /// <param name="originY"></param>
         /// <param name="range"></param>
         /// <returns></returns>
-        private bool ProbeSlope(out Vector3 slope, out Vector3 slopeNormal, Vector3 basePoint, Vector3 offsetDirection,
-            float frontOffset, float backOffset, float originY, float range)
+        private bool ProbeSlope(out Vector3 slopeNormal, Vector3 basePoint, Vector3 offsetDirection,
+            float originY, float range,
+            float frontOffset, float backOffset)
         {
             bool foundSlope = false;
             offsetDirection.y = 0f;
-            slope = offsetDirection;
             slopeNormal = Vector3.up;
 
             Vector3 frontOrigin = basePoint + frontOffset * offsetDirection;
@@ -408,7 +409,7 @@ namespace NekoNeko
 
             if (frontPoint != backPoint)
             {
-                slope = frontPoint - backPoint;
+                Vector3 slope = frontPoint - backPoint;
                 slopeNormal = Vector3.Cross(slope, Vector3.Cross(Vector3.up, slope)).normalized;
                 foundSlope = true;
             }
@@ -424,6 +425,102 @@ namespace NekoNeko
             return foundSlope;
         }
 
+
+        /// <summary>
+        /// Probe slope in the specified direction.
+        /// </summary>
+        /// <param name="basePoint"></param>
+        /// <param name="offset"></param>
+        /// <param name="offsetDirection"></param>
+        /// <param name="originY"></param>
+        /// <param name="range"></param>
+        /// <returns></returns>
+        private bool ProbeSlopeArray(out Vector3 slopeNormal, Vector3 basePoint, Vector3 offsetDirection,
+            float originY, float range,
+            float frontOffset = 0.2f, int frontCount = 2, float backOffset = 0.2f, int backCount = 2)
+        {
+            // Init variables.
+            bool foundSlope = false;
+            offsetDirection.y = 0f;
+            slopeNormal = Vector3.zero;
+            float frontOffsetStep = frontOffset / (float)frontCount;
+            float backOffsetStep = backOffset / (float)backCount;
+            float stepY = basePoint.y + _stepHeight;
+
+            // Init front probing origin.
+            Vector3 frontOrigin = basePoint + frontOffset * offsetDirection;
+            frontOrigin.y = originY;
+
+            // Init back probing origin.
+            Vector3 backOrigin = basePoint + backOffsetStep * -offsetDirection;
+            backOrigin.y = originY;
+
+            List<Vector3> points = new List<Vector3>();
+
+            for (int i = 0; i < frontCount; i++)
+            {
+                RaycastHit frontHitInfo;
+                bool frontHit = Physics.Raycast(new Ray(frontOrigin, Vector3.down), out frontHitInfo,
+                    maxDistance: range, layerMask: _groundLayer);
+                Vector3 frontPoint = basePoint;
+                // Successful.
+                if (frontHit && frontHitInfo.point.y <= stepY)
+                {
+                    frontPoint = frontHitInfo.point;
+                    points.Add(frontPoint);
+                }
+                else
+                {
+                    points.Clear();
+                }
+#if UNITY_EDITOR
+                Debug.DrawLine(frontOrigin, frontPoint, Color.white);
+#endif
+                frontOrigin += frontOffsetStep * -offsetDirection;
+            }
+
+            for (int i = 0; i < backCount; i++)
+            {
+                RaycastHit backHitInfo;
+                bool backHit = Physics.Raycast(new Ray(backOrigin, Vector3.down), out backHitInfo,
+                    maxDistance: range, layerMask: _groundLayer);
+                Vector3 backPoint = basePoint;
+                if (backHit && backHitInfo.point.y <= stepY)
+                {
+                    backPoint = backHitInfo.point;
+                    points.Add(backPoint);
+                }
+                else break;
+#if UNITY_EDITOR
+                Debug.DrawLine(backOrigin, backPoint, Color.white);
+#endif
+                backOrigin += backOffsetStep * -offsetDirection;
+            }
+
+            // Connect points.
+            int segmentCount = 0;
+            for (int i = 0; i < points.Count - 1; i++)
+            {
+                if (i + 1 >= points.Count) break;
+                Vector3 point = points[i];
+                Vector3 nextPoint = points[i + 1];
+                Vector3 segmentSlope = nextPoint - point;
+                Vector3 segmentNormal = Vector3.Cross(segmentSlope, Vector3.Cross(Vector3.up, segmentSlope)).normalized;
+                slopeNormal += segmentNormal;
+                segmentCount += 1;
+                foundSlope = true;
+
+#if UNITY_EDITOR
+                Debug.DrawLine(point, nextPoint, Color.white);
+#endif
+            }
+            if (foundSlope)
+            {
+                slopeNormal = slopeNormal.normalized;
+            }
+
+            return foundSlope;
+        }
         #endregion
 
         #region Ground State
@@ -525,12 +622,18 @@ namespace NekoNeko
             // Approximate slope.
             SlopeNormal = Vector3.up;
             bool foundSlope = false;
-            Vector3 slope = _nonZeroActiveDirection;
             Vector3 slopeNormal = Vector3.up;
             if (IsOnGround)
             {
-                foundSlope = ProbeSlope(out slope, out slopeNormal, basePoint: GroundPoint, offsetDirection: _nonZeroActiveDirection,
-                    _slopeProbeFrontOffset, _slopeProbeBackOffset, ColliderCenter.y + _capsuleHalfHeight, GroundSensor.GroundThresholdDistance + _capsuleHalfHeight);
+
+                foundSlope = (_slopeProbeFrontCount == 1 && _slopeProbeBackCount == 1) ? 
+                    ProbeSlope(out slopeNormal, basePoint: GroundPoint, offsetDirection: _nonZeroActiveDirection,
+                        originY: ColliderCenter.y + _capsuleHalfHeight, range: GroundSensor.GroundThresholdDistance + _capsuleHalfHeight,
+                        _slopeProbeFrontOffset, _slopeProbeBackOffset)
+                    :
+                    ProbeSlopeArray(out slopeNormal, basePoint: GroundPoint, offsetDirection: _nonZeroActiveDirection,
+                        originY: ColliderCenter.y + _capsuleHalfHeight, range: GroundSensor.GroundThresholdDistance + _capsuleHalfHeight,
+                        _slopeProbeFrontOffset, _slopeProbeFrontCount, _slopeProbeBackOffset, _slopeProbeBackCount);
                 SlopeNormal = foundSlope ? slopeNormal : GroundNormal;
             }
 
