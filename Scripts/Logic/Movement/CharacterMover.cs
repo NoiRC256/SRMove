@@ -1,3 +1,4 @@
+using DG.Tweening;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -14,6 +15,7 @@ namespace NekoNeko
             Simple,
             Advanced,
         }
+
         #region Exposed Fields
         [Header("Collider Dimensions")]
         [SerializeField][Min(0f)] private float _height = 2f;
@@ -24,7 +26,9 @@ namespace NekoNeko
         [Tooltip("Defines how we handle acceleration, deceleration, friction for active velocity.\n" +
             "None -- Bypass velocity physics calculations.\n" + "Simple -- Use Speed Change.\n" + "Advanced -- Use Velocity Config.")]
         [SerializeField] private VelocityPhysicsMode _velocityMode = VelocityPhysicsMode.Simple;
+        [Header("Velocity Physics (Simple)")]
         [SerializeField][Range(0f, kMaxSpeedChange)] private float _speedChange = 30f;
+        [Header("Velocity Physics (Advanced)")]
         [SerializeField] private VelocityConfig _velocityConfig = new VelocityConfig();
 
         [Header("Ground Detection")]
@@ -41,20 +45,22 @@ namespace NekoNeko
         [SerializeField][Min(0f)] private float _minExtraGroundThreshold = 0.1f;
         [Tooltip("Factor to multiply by desired ground distance to account for floating point errors.")]
         [SerializeField][Min(0)] private float _groundCheckToleranceFactor = 0.01f;
-        [Tooltip("Remove planar direction from final velocity if the final velocity will cause character to leave ground.")]
+        [Tooltip("If true, performs predictive ground probing and stops horizontal velocity if the final velocity will cause the character to leave ground.")]
         [SerializeField] private bool _restrictToGround = false;
 
         [Header("Step Traversal")]
-        [SerializeField][Min(0f)] private float _stepHeight = 0.4f;
+        [SerializeField][Min(0f)] private float _stepHeight = 0.3f;
         [SerializeField][Min(0f)] private float _stepSearchOvershoot = 0.01f;
-        [SerializeField][Min(1f)] private float _stepUpSmooth = 5f;
-        [SerializeField][Min(1f)] private float _stepDownSmooth = 5f;
+        [SerializeField][Min(1f)] private float _stepUpSmooth = 10f;
+        [SerializeField][Min(1f)] private float _stepDownSmooth = 10f;
         [SerializeField] private bool _useRealGroundNormal = true;
+        [Tooltip("If true, performs predictive ground probing to adjust floating step velocity more responsively.")]
+        [SerializeField] private bool _predictiveStepVel = false;
 
         [Header("Slope Detection")]
-        [SerializeField][Min(0f)] private float _slopeProbeFrontOffset = 0.3f;
+        [SerializeField][Min(0f)] private float _slopeProbeFrontOffset = 0.5f;
         [SerializeField][Range(1, 5)] private int _slopeProbeFrontCount = 2;
-        [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 0.3f;
+        [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 0.5f;
         [SerializeField][Range(1, 5)] private int _slopeProbeBackCount = 2;
         #endregion
 
@@ -63,6 +69,7 @@ namespace NekoNeko
         public bool IsOnFlatGround { get; set; }
         public Vector3 GroundNormal { get; set; }
         public Vector3 GroundPoint { get; set; }
+        public Collider GroundCollider { get; set; }
         public Vector3 SlopeNormal { get; set; }
 
         public Rigidbody Rigidbody { get; private set; }
@@ -167,6 +174,7 @@ namespace NekoNeko
 
         // Ground contact.
         private int _groundCollisionCount = 0;
+        private Vector3 _prevConnectionPos;
 
         // Ground probing.
         private bool _useExtraGroundThresholdDistance = false;
@@ -176,6 +184,9 @@ namespace NekoNeko
         private float _desiredGroundDistance;
         // Ground probe range.
         private float _totalGroundProbeRange;
+
+        // Slop probing.
+        private List<Vector3> _slopePoints = new List<Vector3>();
         #endregion
 
         #region Events
@@ -335,6 +346,20 @@ namespace NekoNeko
                 _groundStepVel = CalcGroundStepVel(groundInfo.Distance, Time.deltaTime);
                 GroundNormal = groundInfo.Normal;
                 GroundPoint = groundInfo.Point;
+                // Update ground connection velocity.
+                if (groundInfo.Collider != GroundCollider)
+                {
+                    // This is a new connection, initialize the connection position and velocity.
+                    _prevConnectionPos = groundInfo.Collider.transform.position;
+                    _connectedVel = Vector3.zero;
+                    GroundCollider = groundInfo.Collider;
+                }
+                else
+                {
+                    Vector3 groundPos = GroundCollider.transform.position;
+                    _connectedVel = (groundPos - _prevConnectionPos) / Time.deltaTime;
+                    _prevConnectionPos = groundPos;
+                }
             }
 
 #if UNITY_EDITOR
@@ -455,7 +480,7 @@ namespace NekoNeko
             Vector3 backOrigin = basePoint + backOffsetStep * -offsetDirection;
             backOrigin.y = originY;
 
-            List<Vector3> points = new List<Vector3>();
+            _slopePoints.Clear();
 
             for (int i = 0; i < frontCount; i++)
             {
@@ -467,17 +492,19 @@ namespace NekoNeko
                 if (frontHit && frontHitInfo.point.y <= stepY)
                 {
                     frontPoint = frontHitInfo.point;
-                    points.Add(frontPoint);
+                    _slopePoints.Add(frontPoint);
+#if UNITY_EDITOR
+                    Debug.DrawLine(frontOrigin, frontPoint, Color.white);
+#endif
                 }
                 else
                 {
-                    points.Clear();
+                    _slopePoints.Clear();
                 }
-#if UNITY_EDITOR
-                Debug.DrawLine(frontOrigin, frontPoint, Color.white);
-#endif
                 frontOrigin += frontOffsetStep * -offsetDirection;
             }
+
+            _slopePoints.Add(basePoint);
 
             for (int i = 0; i < backCount; i++)
             {
@@ -488,24 +515,26 @@ namespace NekoNeko
                 if (backHit && backHitInfo.point.y <= stepY)
                 {
                     backPoint = backHitInfo.point;
-                    points.Add(backPoint);
+                    _slopePoints.Add(backPoint);
+#if UNITY_EDITOR
+                    Debug.DrawLine(backOrigin, backPoint, Color.white);
+#endif
                 }
                 else break;
-#if UNITY_EDITOR
-                Debug.DrawLine(backOrigin, backPoint, Color.white);
-#endif
                 backOrigin += backOffsetStep * -offsetDirection;
             }
 
+            Vector3 slope = Vector3.zero;
             // Connect points.
             int segmentCount = 0;
-            for (int i = 0; i < points.Count - 1; i++)
+            for (int i = 0; i < _slopePoints.Count; i++)
             {
-                if (i + 1 >= points.Count) break;
-                Vector3 point = points[i];
-                Vector3 nextPoint = points[i + 1];
+                if (i + 1 >= _slopePoints.Count) break;
+                Vector3 point = _slopePoints[i];
+                Vector3 nextPoint = _slopePoints[i + 1];
                 Vector3 segmentSlope = nextPoint - point;
                 Vector3 segmentNormal = Vector3.Cross(segmentSlope, Vector3.Cross(Vector3.up, segmentSlope)).normalized;
+                slope += segmentSlope;
                 slopeNormal += segmentNormal;
                 segmentCount += 1;
                 foundSlope = true;
@@ -516,7 +545,11 @@ namespace NekoNeko
             }
             if (foundSlope)
             {
+                slope = slope.normalized;
                 slopeNormal = slopeNormal.normalized;
+#if UNITY_EDITOR
+                Debug.DrawLine(_slopePoints[0], _slopePoints[0] + slope * (_slopeProbeFrontOffset + _slopeProbeBackOffset), Color.cyan);
+#endif
             }
 
             return foundSlope;
@@ -577,15 +610,19 @@ namespace NekoNeko
         {
             Vector3 finalVel = CalcFinalVel(deltaTime);
 
-            // Perform predictive ground probing and update floating adjustment velocity.
-            GroundInfo predictedGroundInfo;
-            bool willBeOnGround = EvaluateProbeGround(out predictedGroundInfo, finalVel * deltaTime);
-            if (willBeOnGround)
+            // Perform predictive ground probing.
+            if (_predictiveStepVel || _restrictToGround)
             {
-                // Update ground floating adjustment velocity.
-                //_groundStepVel = CalcGroundStepVel(predictedGroundInfo.Distance, deltaTime);
+                GroundInfo predictedGroundInfo;
+                bool willBeOnGround = EvaluateProbeGround(out predictedGroundInfo, finalVel * deltaTime);
+                if (willBeOnGround)
+                {
+                    // Update ground floating adjustment velocity.
+                    if (_predictiveStepVel) _groundStepVel = CalcGroundStepVel(predictedGroundInfo.Distance, deltaTime);
+                }
+                else if (_restrictToGround) finalVel.x = finalVel.z = 0f;
             }
-            else if (_restrictToGround) finalVel.x = finalVel.z = 0f;
+
 
             Move(finalVel);
 
@@ -620,13 +657,13 @@ namespace NekoNeko
             }
 
             // Approximate slope.
-            SlopeNormal = Vector3.up;
+            SlopeNormal = GroundNormal;
             bool foundSlope = false;
             Vector3 slopeNormal = Vector3.up;
             if (IsOnGround)
             {
 
-                foundSlope = (_slopeProbeFrontCount == 1 && _slopeProbeBackCount == 1) ? 
+                foundSlope = (_slopeProbeFrontCount == 1 && _slopeProbeBackCount == 1) ?
                     ProbeSlope(out slopeNormal, basePoint: GroundPoint, offsetDirection: _nonZeroActiveDirection,
                         originY: ColliderCenter.y + _capsuleHalfHeight, range: GroundSensor.GroundThresholdDistance + _capsuleHalfHeight,
                         _slopeProbeFrontOffset, _slopeProbeBackOffset)
@@ -634,7 +671,12 @@ namespace NekoNeko
                     ProbeSlopeArray(out slopeNormal, basePoint: GroundPoint, offsetDirection: _nonZeroActiveDirection,
                         originY: ColliderCenter.y + _capsuleHalfHeight, range: GroundSensor.GroundThresholdDistance + _capsuleHalfHeight,
                         _slopeProbeFrontOffset, _slopeProbeFrontCount, _slopeProbeBackOffset, _slopeProbeBackCount);
-                SlopeNormal = foundSlope ? slopeNormal : GroundNormal;
+
+                if (foundSlope)
+                {
+                    SlopeNormal = slopeNormal;
+                }
+
             }
 
 #if UNITY_EDITOR
@@ -690,14 +732,6 @@ namespace NekoNeko
             float speedChange = accel * Time.deltaTime;
 
             finalVel = Vector3.MoveTowards(finalVel, desiredVel, speedChange);
-
-
-#if UNITY_EDITOR
-            // Desired velocity line.
-            Debug.DrawLine(transform.position, transform.position + desiredVel, Color.gray);
-            // Final velocity line.
-            Debug.DrawLine(transform.position, transform.position + finalVel, Color.black);
-#endif
 
             return finalVel;
         }

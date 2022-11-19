@@ -59,6 +59,7 @@ namespace NekoNeko
                     isGroundInRange = true;
                     groundInfo.Normal = hitInfo.normal;
                     groundInfo.Point = hitInfo.point;
+                    groundInfo.Collider = hitInfo.collider;
 
                     if (UseRealGroundNormal && thickness > 0f)
                     {
