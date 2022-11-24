@@ -1,13 +1,20 @@
 # Overview
 NekoMovement is an experimental rigidbody physics character movement solution, designed as an alternative to Unity's Character Controller. It provides the following key features.
 
-:heavy_check_mark: **Intuitive collider adjustment** - provides the ability to tweak movement collider height with fixed bottom / tweak floating step height with fixed top.  
+:heavy_check_mark: **Intuitive collider adjustment** - provides the ability to tweak movement collider height with fixed bottom / tweak floating step height with fixed top.
+
 :heavy_check_mark: **Ground detection** - updates ground contact state each physics frame. Detects ground with configurable parameters, and uses spherecast to support ledge perching. 
+
 :heavy_check_mark: **Slope traversal with ground snapping** - provides the ability to snap to ground when moving down slopes. Supports slope approximation to obtain stable slope information on complex terrain.
+
 :heavy_check_mark: **Smooth stair traversal** - don't rely on IK for smoothly stepping up and down. Gives reliable smoothing behaviour when combined with the slope approximation feature.    
+
 :heavy_check_mark: **Velocity physics** - provides the ability to tweak acceleration, deceleration, friction of active velocity.
-:heavy_check_mark: **Inherit ground velocity** - correctly handles velocity when on moving platforms.  
+
+:heavy_check_mark: **Inherit ground velocity** - correctly handles velocity when on moving platforms.
+
 :heavy_check_mark: **Versatile impulse system** - provides a controllable way to simulate physical impulses.
+
 
 ### Environment
 
