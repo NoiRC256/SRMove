@@ -1,6 +1,7 @@
 using DG.Tweening;
 using System;
 using System.Collections.Generic;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace NekoNeko
@@ -58,6 +59,7 @@ namespace NekoNeko
         [SerializeField] private bool _predictiveStepVel = false;
 
         [Header("Slope Detection")]
+        [SerializeField] private bool _useSlopeProbing = true;
         [SerializeField][Min(0f)] private float _slopeProbeFrontOffset = 0.5f;
         [SerializeField][Range(1, 5)] private int _slopeProbeFrontCount = 2;
         [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 0.5f;
@@ -160,9 +162,14 @@ namespace NekoNeko
         private Vector3 _directVel = Vector3.zero;
         private bool _hasDirectVel = false;
         // Base velocity contribution from connected body.
-        private Vector3 _connectedVel;
+        private Vector3 _connectedBodyVel = Vector3.zero;
+        private Vector3 _connectedBodyPosDelta = Vector3.zero;
         // Ground step height velocity;
-        private Vector3 _groundStepVel;
+        private Vector3 _groundStepVel = Vector3.zero;
+        private float _prevRequiredStepDelta = 0f;
+        private float _requiredStepDeltaChange = 0f;
+        // Extra velocity.
+        private Vector3 _extraVel = Vector3.zero;
         // Last frame rigidbody velocity.
         private Vector3 _lastVel;
 
@@ -190,8 +197,8 @@ namespace NekoNeko
         #endregion
 
         #region Events
-        public event Action GainedGroundContact;
-        public event Action LostGroundContact;
+        public event Action GainedGroundContact = delegate { };
+        public event Action LostGroundContact = delegate { };
         #endregion
 
         #region MonoBehaviour
@@ -229,7 +236,6 @@ namespace NekoNeko
             GroundNormal = Vector3.up;
             GroundPoint = transform.position;
             _groundStepVel = Vector3.zero;
-            _hasGroundStateChanged = false;
 
             // Perform ground probing and update floating adjustment velocity.
             GroundInfo probedGroundInfo;
@@ -242,6 +248,7 @@ namespace NekoNeko
 
             // Clean up frame.
             _collisions.Clear();
+            _extraVel = Vector3.zero;
             _lastVel = Rigidbody.velocity;
         }
 
@@ -342,8 +349,6 @@ namespace NekoNeko
             bool isOnGround = PredictProbeGround(out groundInfo, offset);
             if (isOnGround)
             {
-                // Update ground floating adjustment velocity.
-                _groundStepVel = CalcGroundStepVel(groundInfo.Distance, Time.deltaTime);
                 GroundNormal = groundInfo.Normal;
                 GroundPoint = groundInfo.Point;
                 // Update ground connection velocity.
@@ -351,15 +356,21 @@ namespace NekoNeko
                 {
                     // This is a new connection, initialize the connection position and velocity.
                     _prevConnectionPos = groundInfo.Collider.transform.position;
-                    _connectedVel = Vector3.zero;
+                    _connectedBodyVel = Vector3.zero;
                     GroundCollider = groundInfo.Collider;
                 }
                 else
                 {
                     Vector3 groundPos = GroundCollider.transform.position;
-                    _connectedVel = (groundPos - _prevConnectionPos) / Time.deltaTime;
+                    if(_wasOnGround)
+                    {
+                        _connectedBodyPosDelta = groundPos - _prevConnectionPos;
+                        _connectedBodyVel = _connectedBodyPosDelta / Time.deltaTime;
+                    }
                     _prevConnectionPos = groundPos;
                 }
+                // Update ground floating adjustment velocity.
+                _groundStepVel = CalcGroundStepVel(groundInfo.Distance, Time.deltaTime, _connectedBodyPosDelta.y);
             }
 
 #if UNITY_EDITOR
@@ -563,13 +574,16 @@ namespace NekoNeko
         /// <param name="groundDistance"></param>
         /// <param name="deltaTime"></param>
         /// <returns></returns>
-        private Vector3 CalcGroundStepVel(float groundDistance, float deltaTime)
+        private Vector3 CalcGroundStepVel(float groundDistance, float deltaTime, float offsetY = 0f)
         {
-            float requiredDelta = (_capsuleHalfHeight + _stepHeight) - groundDistance;
+            Vector3 vel = _groundStepVel;
+            float requiredDelta = (_capsuleHalfHeight + _stepHeight + offsetY) - groundDistance;
             bool shouldGoUp = requiredDelta > 0f;
             bool shouldGoDown = requiredDelta < 0f;
-            Vector3 vel;
-            if (_hasGroundStateChanged || _isTouchingCeiling) vel = Vector3.up * (requiredDelta / deltaTime);
+            if (_hasGroundStateChanged || _isTouchingCeiling)
+            {
+                vel = Vector3.up * (requiredDelta / deltaTime);
+            }
             else
             {
                 float stepSmooth = shouldGoUp ? _stepUpSmooth : _stepDownSmooth;
@@ -591,6 +605,10 @@ namespace NekoNeko
                 _hasGroundStateChanged = true;
                 LostGroundContact.Invoke();
                 UseExtraGroundThresholdDistance = false;
+            }
+            else
+            {
+                _hasGroundStateChanged = false;
             }
             _wasOnGround = IsOnGround;
         }
@@ -614,15 +632,15 @@ namespace NekoNeko
             if (_predictiveStepVel || _restrictToGround)
             {
                 GroundInfo predictedGroundInfo;
-                bool willBeOnGround = EvaluateProbeGround(out predictedGroundInfo, finalVel * deltaTime);
+                bool willBeOnGround = PredictProbeGround(out predictedGroundInfo, finalVel * deltaTime);
                 if (willBeOnGround)
                 {
+                    Debug.Log(_connectedBodyPosDelta.y);
                     // Update ground floating adjustment velocity.
-                    if (_predictiveStepVel) _groundStepVel = CalcGroundStepVel(predictedGroundInfo.Distance, deltaTime);
+                    if (_predictiveStepVel) _groundStepVel = CalcGroundStepVel(predictedGroundInfo.Distance, deltaTime, _connectedBodyPosDelta.y);
                 }
                 else if (_restrictToGround) finalVel.x = finalVel.z = 0f;
             }
-
 
             Move(finalVel);
 
@@ -660,7 +678,7 @@ namespace NekoNeko
             SlopeNormal = GroundNormal;
             bool foundSlope = false;
             Vector3 slopeNormal = Vector3.up;
-            if (IsOnGround)
+            if (IsOnGround && _useSlopeProbing)
             {
 
                 foundSlope = (_slopeProbeFrontCount == 1 && _slopeProbeBackCount == 1) ?
@@ -676,8 +694,10 @@ namespace NekoNeko
                 {
                     SlopeNormal = slopeNormal;
                 }
-
             }
+
+            // Align active velocity to slope normal.
+            Vector3 adjustedActiveVel = IsOnGround ? AlignVelocityToNormal(_activeVel, SlopeNormal) : _activeVel;
 
 #if UNITY_EDITOR
             Debug.DrawLine(transform.position, transform.position + SlopeNormal, Color.cyan);
@@ -710,8 +730,6 @@ namespace NekoNeko
                 if (!impulse.IsActive) _impulses.RemoveAt(i);
             }
 
-            Vector3 adjustedActiveVel = IsOnGround ? AlignVelocityToNormal(_activeVel, SlopeNormal) : _activeVel;
-
 #if UNITY_EDITOR
             // Ground normal.
             //Debug.DrawLine(transform.position, transform.position + GroundNormal * 0.5f, Color.blue);
@@ -720,7 +738,7 @@ namespace NekoNeko
 #endif
 
             Vector3 finalVel = _hasDirectVel ? _directVel
-                : adjustedActiveVel + _connectedVel + impulseVel;
+                : _connectedBodyVel + adjustedActiveVel  + _extraVel + impulseVel;
             return finalVel;
         }
         #endregion
@@ -856,6 +874,15 @@ namespace NekoNeko
         }
 
         /// <summary>
+        /// Set extra velocity for one physics frame.
+        /// </summary>
+        /// <param name="vel"></param>
+        public void SetExtraVelocity(Vector3 vel)
+        {
+            _extraVel = vel;
+        }
+
+        /// <summary>
         /// Move by setting direct velocity, bypassing active velocity and velocity physics calculations.
         /// <para>Typically used to apply animation root motion.</para>
         /// </summary>
@@ -870,7 +897,7 @@ namespace NekoNeko
             }
             else
             {
-                _directVel = velocity + _connectedVel;
+                _directVel = velocity + _connectedBodyVel;
             }
             _hasDirectVel = true;
         }

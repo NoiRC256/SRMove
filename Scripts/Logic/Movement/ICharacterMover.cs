@@ -16,6 +16,7 @@ namespace NekoNeko
         #endregion
 
         void InputMove(float inputSpeed, Vector3 inputDirection);
+        void SetExtraVelocity(Vector3 vel);
         void DirectMove(Vector3 velocity, bool restrictToGround = false, bool ignoreConnectedGround = false);
 
         void AddImpulse(Impulse impulse);

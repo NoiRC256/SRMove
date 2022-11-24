@@ -27,8 +27,8 @@ namespace NekoNeko
 
         public bool IsComplete { get; set; }
         public bool IsActive { get; set; }
-        public float MaxSpeed { get => _config.MaxSpeed; set => _config.MaxSpeed = value; }
-        public Vector3 Direction { get => _config.Direction; set => _config.Direction = value; }
+        public float MaxSpeed { get => _config.MaxSpeedRatio; set => _config.MaxSpeedRatio = value; }
+        public Vector3 Velocity { get => _config.Velocity; set => _config.Velocity = value; }
         /// <summary>
         /// If true, will not automatically deactivate on completion. Evaluation counter will be fixed at t = 1.0.
         /// </summary>
@@ -60,7 +60,7 @@ namespace NekoNeko
         public Vector3 Evaluate(float deltaTime)
         {
             if (!IsActive) return Vector3.zero;
-            float speed = _config.MaxSpeed * _config.Curve.Evaluate(_counter / _config.Duration);
+            float speedRatio = _config.MaxSpeedRatio * _config.Curve.Evaluate(_counter / _config.Duration);
             _counter += Time.deltaTime;
             if (_counter > _config.Duration)
             {
@@ -71,7 +71,7 @@ namespace NekoNeko
                     Deactivate();
                 }
             }
-            return speed * _config.Direction;
+            return speedRatio * _config.Velocity;
         }
 
         /// <summary>
@@ -96,8 +96,8 @@ namespace NekoNeko
     [System.Serializable]
     public class ImpulseConfig
     {
-        [SerializeField] [Min(0f)] private float _maxSpeed = 3f;
-        [SerializeField] private Vector3 _direction = Vector3.forward;
+        [SerializeField] [Min(0f)] private float _maxSpeedRatio = 1f;
+        [SerializeField] private Vector3 _velocity = Vector3.up;
         [SerializeField] [Min(0f)] private float _duration = 0.5f;
         [SerializeField] private AnimationCurve _curve = AnimationCurve.Linear(0f, 1f, 1f, 0f);
         [SerializeField] private bool _holdOnComplete = true;
@@ -106,8 +106,8 @@ namespace NekoNeko
         [SerializeField] private Impulse.SpeedMode _speedMode = Impulse.SpeedMode.Add;
         [SerializeField] private bool _leaveGround = true;
 
-        public float MaxSpeed { get => _maxSpeed; set => _maxSpeed = value; }
-        public Vector3 Direction { get => _direction; set => _direction = value; }
+        public float MaxSpeedRatio { get => _maxSpeedRatio; set => _maxSpeedRatio = value; }
+        public Vector3 Velocity { get => _velocity; set => _velocity = value; }
         public float Duration { get => _duration; set => _duration = value; }
         public AnimationCurve Curve { get => _curve; set => _curve = value; }
         public bool HoldOnComplete { get => _holdOnComplete; set => _holdOnComplete = value; }
