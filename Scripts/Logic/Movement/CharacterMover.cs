@@ -1,4 +1,3 @@
-using DG.Tweening;
 using System;
 using System.Collections.Generic;
 using Unity.Mathematics;
@@ -41,9 +40,9 @@ namespace NekoNeko
         [Tooltip("Surfaces with normal below this angle is considered as flat ground.")]
         [SerializeField][Range(0f, 90f)] private float _flatGroundAngleLimit = 70f;
         [SerializeField][Min(0f)] private float _groundProbeRange = 10f;
-        [SerializeField][Min(0f)] private float _groundProbeThickness = 0.2f;
+        [SerializeField][Min(0f)] private float _groundProbeThickness = 0.1f;
         [Tooltip("Minimum extra ground threshold distance for snapping to ground. The greater value between step height and this value will be used.")]
-        [SerializeField][Min(0f)] private float _minExtraGroundThreshold = 0.1f;
+        [SerializeField][Min(0f)] private float _minExtraGroundThreshold = 0.25f;
         [Tooltip("Factor to multiply by desired ground distance to account for floating point errors.")]
         [SerializeField][Min(0)] private float _groundCheckToleranceFactor = 0.01f;
         [Tooltip("If true, performs predictive ground probing and stops horizontal velocity if the final velocity will cause the character to leave ground.")]
@@ -56,13 +55,13 @@ namespace NekoNeko
         [SerializeField][Min(1f)] private float _stepDownSmooth = 10f;
         [SerializeField] private bool _useRealGroundNormal = true;
         [Tooltip("If true, performs predictive ground probing to adjust floating step velocity more responsively.")]
-        [SerializeField] private bool _predictiveStepVel = false;
+        [SerializeField] private bool _usePredictiveStepVel = false;
 
         [Header("Slope Detection")]
         [SerializeField] private bool _useSlopeProbing = true;
-        [SerializeField][Min(0f)] private float _slopeProbeFrontOffset = 0.5f;
+        [SerializeField][Min(0f)] private float _slopeProbeFrontOffset = 1f;
         [SerializeField][Range(1, 5)] private int _slopeProbeFrontCount = 2;
-        [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 0.5f;
+        [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 1f;
         [SerializeField][Range(1, 5)] private int _slopeProbeBackCount = 2;
         #endregion
 
@@ -192,7 +191,7 @@ namespace NekoNeko
         // Ground probe range.
         private float _totalGroundProbeRange;
 
-        // Slop probing.
+        // Slope probing.
         private List<Vector3> _slopePoints = new List<Vector3>();
         #endregion
 
@@ -362,7 +361,7 @@ namespace NekoNeko
                 else
                 {
                     Vector3 groundPos = GroundCollider.transform.position;
-                    if(_wasOnGround)
+                    if (_wasOnGround)
                     {
                         _connectedBodyPosDelta = groundPos - _prevConnectionPos;
                         _connectedBodyVel = _connectedBodyPosDelta / Time.deltaTime;
@@ -629,7 +628,7 @@ namespace NekoNeko
             Vector3 finalVel = CalcFinalVel(deltaTime);
 
             // Perform predictive ground probing.
-            if (_predictiveStepVel || _restrictToGround)
+            if (_usePredictiveStepVel || _restrictToGround)
             {
                 GroundInfo predictedGroundInfo;
                 bool willBeOnGround = PredictProbeGround(out predictedGroundInfo, finalVel * deltaTime);
@@ -637,7 +636,7 @@ namespace NekoNeko
                 {
                     Debug.Log(_connectedBodyPosDelta.y);
                     // Update ground floating adjustment velocity.
-                    if (_predictiveStepVel) _groundStepVel = CalcGroundStepVel(predictedGroundInfo.Distance, deltaTime, _connectedBodyPosDelta.y);
+                    if (_usePredictiveStepVel) _groundStepVel = CalcGroundStepVel(predictedGroundInfo.Distance, deltaTime, _connectedBodyPosDelta.y);
                 }
                 else if (_restrictToGround) finalVel.x = finalVel.z = 0f;
             }
@@ -738,7 +737,7 @@ namespace NekoNeko
 #endif
 
             Vector3 finalVel = _hasDirectVel ? _directVel
-                : _connectedBodyVel + adjustedActiveVel  + _extraVel + impulseVel;
+                : _connectedBodyVel + adjustedActiveVel + _extraVel + impulseVel;
             return finalVel;
         }
         #endregion
