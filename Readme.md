@@ -1,6 +1,7 @@
 # Overview
 NekoMovement is an experimental rigidbody physics character movement solution, designed as an alternative to Unity's Character Controller. It provides the following features.
 
+
 :heavy_check_mark: **Intuitive collider adjustment** - provides the ability to tweak movement collider height with fixed bottom / tweak floating step height with fixed top.
 
 :heavy_check_mark: **Ground detection** - updates ground contact state each physics frame. Performs ground detection with configurable parameters, using spherecast to support ledge perching.
