@@ -24,7 +24,7 @@ Developed and tested in Unity 2022.2.0b12
 # Usage
 
 - Add a `CharacterMover` component to a gameobject. A rigidbody and capsule collider will be automatically added and configured.
-- In your own movement controller, import `NekoNeko` namespace, and reference the `CharacterMover` instance.
+- In your own movement controller, import `Nap.Movement` namespace, and reference the `CharacterMover` instance.
 - Now you can implement your movement state logic. Let `CharacterMover` handle the rest ~
 
 A simple example:
@@ -33,15 +33,19 @@ A simple example:
 public class MyMovementController : MonoBehaviour
 {
     [SerializeField] private MyInputSource _inputSource;
-    [SerializeField] private NekoNeko.CharacterMover _characterMover;
+    [SerializeField] private Nap.Movement.CharacterMover _characterMover;
     [SerializeField] private Transform _cameraTr;
     [SerializeField] private float _speed = 3f;
 
     private void Update()
     {
-        float inputSpeed = _speed;
+        if(!_inputSource.HasMovementInput())
+        {
+            _characterMover.SetInputVelocity(0f, Vector3.zero);
+            return;
+        }
         Vector3 inputDirection = DirectionFromInput(_inputSource.GetMovementInput());
-        _characterMover.InputMove(inputSpeed, inputDirection);
+        _characterMover.SetInputVelocity(_speed, inputDirection);
     }
 
     // Convert 2D input vector to 3D direction relative to camera transform.
