@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 
-namespace NekoNeko
+namespace Nap.Movement
 {
     /// <summary>
     /// Velocity impulse that evaluates a speed curve over a specified duration.

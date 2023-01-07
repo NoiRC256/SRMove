@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NekoNeko
+namespace Nap.Movement
 {
     public class GroundSensor
     {
