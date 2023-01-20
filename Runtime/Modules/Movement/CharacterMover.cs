@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Nap.Movement
+namespace NekoLib.Movement
 {
+    [RequireComponent(typeof(Rigidbody))]
+    [RequireComponent(typeof(CapsuleCollider))]
     public class CharacterMover : MonoBehaviour, ICharacterMover
     {
         public const float kMaxSpeedChange = 300f;
@@ -28,6 +30,11 @@ namespace Nap.Movement
         [SerializeField][Range(0f, kMaxSpeedChange)] private float _speedChange = 50f;
         [SerializeField] private VelocityConfig _velocityConfig = new VelocityConfig();
 
+        [Header("Gravity")]
+        [SerializeField] private bool _enableGravity = true;
+        [SerializeField][Min(0f)] private float _gravityAccel = 20f;
+        [SerializeField][Min(0f)] private float _maxFallSpeed = 20f;
+
         [Header("Ground Detection")]
         [SerializeField] private LayerMask _groundLayer;
         [Tooltip("Snap to ground when grounded. Useful for cases like moving down stairs.")]
@@ -47,12 +54,11 @@ namespace Nap.Movement
 
         [Header("Step Traversal")]
         [SerializeField][Min(0f)] private float _stepHeight = 0.3f;
-        [SerializeField][Min(0f)] private float _stepSearchOvershoot = 0.01f;
         [SerializeField][Min(1f)] private float _stepUpSmooth = 10f;
         [SerializeField][Min(1f)] private float _stepDownSmooth = 10f;
         [SerializeField] private bool _useRealGroundNormal = true;
         [Tooltip("If true, performs predictive ground probing to adjust floating step velocity more responsively.")]
-        [SerializeField] private bool _usePredictiveStepVel = false;
+        [SerializeField] private bool _predictGroundWhenFalling = true;
 
         [Header("Slope Detection")]
         [SerializeField] private bool _useSlopeProbing = true;
@@ -60,6 +66,14 @@ namespace Nap.Movement
         [SerializeField][Range(1, 5)] private int _slopeProbeFrontCount = 2;
         [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 1f;
         [SerializeField][Range(1, 5)] private int _slopeProbeBackCount = 2;
+
+#if UNITY_EDITOR
+        [Header("Debug")]
+        [SerializeField] private bool _showVelocityDebug = false;
+        [SerializeField] private bool _showGroundProbingDebug = false;
+        [SerializeField] private bool _showSlopeDebug = false;
+        [SerializeField] private bool _showContactDebug = false;
+#endif
         #endregion
 
         #region Properties
@@ -69,6 +83,26 @@ namespace Nap.Movement
         public Vector3 GroundPoint { get; set; }
         public Collider GroundCollider { get; set; }
         public Vector3 SlopeNormal { get; set; }
+        public float ActualSpeed {
+            get {
+                if (_actualSpeedIsDirty)
+                {
+                    _actualSpeed = Rigidbody.velocity.magnitude;
+                    _actualSpeedIsDirty = false;
+                }
+                return _actualSpeed;
+            }
+        }
+        public Vector3 ActualDirection {
+            get {
+                if (_actualDirectionIsDirty)
+                {
+                    _actualDirection = Rigidbody.velocity.normalized;
+                    _actualDirectionIsDirty = false;
+                }
+                return _actualDirection;
+            }
+        }
 
         public Rigidbody Rigidbody { get; private set; }
         public Collider Collider { get; private set; }
@@ -136,6 +170,8 @@ namespace Nap.Movement
         #endregion
 
         #region Fields
+
+        #region Cache Fields
         // Convenience cache for collider.
         private CapsuleCollider _capsuleCollider;
         private float _capsuleHalfHeight;
@@ -147,29 +183,47 @@ namespace Nap.Movement
         private List<Collision> _collisions = new List<Collision>();
         private List<Impulse> _impulses = new List<Impulse>();
 
+        private float _actualSpeed;
+        private bool _actualSpeedIsDirty = true;
+        private Vector3 _actualDirection;
+        private bool _actualDirectionIsDirty = true;
+        #endregion
+
+        #region Velocity Fields
         // Input velocity that drives active velocity.
         private float _inputSpeed;
         private Vector3 _inputDirection;
         private bool _hasInput;
         // Active velocity, driven by input and affected by velocity physics.
-        private Vector3 _savedActiveVel = Vector3.zero;
-        // Previous nonzero active vel direction.
+        private Vector3 _activeVel = Vector3.zero;
+        // Previous nonzero active velocity direction.
         private Vector3 _nonZeroActiveDirection = Vector3.zero;
-        // Passive velocity, overrides active velocity and bypasses all velocity physics.
-        private Vector3 _directVel = Vector3.zero;
-        private bool _hasDirectVel = false;
+
+        // Passive velocity.
+        private Vector3 _passiveVel = Vector3.zero;
+
+        // Extra velocity.
+        // Cleared at the end of every fixed update.
+        private Vector3 _extraVel = Vector3.zero;
+
+        // Override velocity, overrides active velocity, bypassing all velocity physics.
+        // Cleared at the end of every fixed update.
+        private Vector3 _overrideVel = Vector3.zero;
+        private bool _hasOverrideVel = false;
+
+        // Gravity speed;
+        private float _gravitySpeed;
+
         // Base velocity contribution from connected body.
         private Vector3 _connectedBodyVel = Vector3.zero;
         private Vector3 _connectedBodyPosDelta = Vector3.zero;
+
         // Ground step height velocity;
         private Vector3 _groundStepVel = Vector3.zero;
-        private float _prevRequiredStepDelta = 0f;
-        private float _requiredStepDeltaChange = 0f;
-        // Extra velocity.
-        private Vector3 _extraVel = Vector3.zero;
-        // Last frame rigidbody velocity.
-        private Vector3 _lastVel;
 
+        #endregion
+
+        #region Ground Fields
         // Ground state.
         private bool _wasOnGround = false;
         private bool _hasGroundStateChanged = false;
@@ -191,6 +245,8 @@ namespace Nap.Movement
 
         // Slope probing.
         private List<Vector3> _slopePoints = new List<Vector3>();
+        #endregion
+
         #endregion
 
         #region Events
@@ -236,15 +292,21 @@ namespace Nap.Movement
             // Perform ground probing and update floating adjustment velocity.
             GroundInfo probedGroundInfo;
             IsOnGround = EvaluateProbeGround(out probedGroundInfo);
+
             // Update ground state, invokes events.
             UpdateGroundState(IsOnGround);
             // Update movement.
             UpdateMovement(Time.deltaTime);
 
+            // Mark properties for update.
+            _actualSpeedIsDirty = true;
+            _actualDirectionIsDirty = true;
+
             // Clean up frame.
             _collisions.Clear();
             _extraVel = Vector3.zero;
-            _lastVel = Rigidbody.velocity;
+            _overrideVel = Vector3.zero;
+            _hasOverrideVel = false;
         }
 
         private void Update()
@@ -262,18 +324,17 @@ namespace Nap.Movement
         {
             _collisions.Add(collision);
         }
-
         #endregion
 
         #region Movement Methods
         /// <summary>
         /// Move by setting the active movement velocity using the specified input speed and direction.
         /// <para>Active movement velocity is subject to velocity physics calculations.</para>
-        /// <para>The provided input speed and direction will persist across physics updates.</para>
+        /// <para>The provided input speed and direction will persist across fixed updates.</para>
         /// </summary>
         /// <param name="inputSpeed"></param>
         /// <param name="inputDirection"></param>
-        public void SetInputVelocity(float inputSpeed, Vector3 inputDirection)
+        public void InputMove(float inputSpeed, Vector3 inputDirection)
         {
             _inputSpeed = inputSpeed;
             _inputDirection = inputDirection;
@@ -281,34 +342,89 @@ namespace Nap.Movement
         }
 
         /// <summary>
-        /// Set extra velocity for one physics update.
-        /// <para>This velocity will be cleared at the end of the physics update.</para>
+        /// Forcefully set the active velocity that is undergoing velocity physics processing.
         /// </summary>
-        /// <param name="vel"></param>
-        public void SetExtraVelocity(Vector3 vel)
+        /// <param name="velocity"></param>
+        public void SetActiveVelocity(Vector3 velocity)
         {
-            _extraVel = vel;
+            _activeVel = velocity;
+        }
+
+        public void ClearActiveVelocity()
+        {
+            _activeVel = Vector3.zero;
         }
 
         /// <summary>
-        /// Move by setting direct velocity for one physics frame.
-        /// <para>Overrides active velocity and velocity physics calculations.
-        /// Typically used for simple moving or applying animation root motion.</para>
+        /// Set the passive velocity.
+        /// <para>Passive velocity will persist across fixed updates.</para>
         /// </summary>
         /// <param name="velocity"></param>
-        /// <param name="restrictToGround">If true, only move if the movement will not cause us to lose ground contact.</param>
-        /// <param name="ignoreConnectedGround">If true, ignore base velocity from connected body.</param>
-        public void DirectMove(Vector3 velocity, bool restrictToGround = false, bool ignoreConnectedGround = false)
+        public void SetPassiveVelocity(Vector3 velocity)
+        {
+            _passiveVel = velocity;
+        }
+
+        public void ClearPassiveVelocity()
+        {
+            _passiveVel = Vector3.zero;
+        }
+
+        /// <summary>
+        /// Set the extra velocity for one physics update.
+        /// <para>Extra velocity will be cleared at the end of the physics update.</para>
+        /// </summary>
+        /// <param name="velocity"></param>
+        public void SetExtraVelocity(Vector3 velocity)
+        {
+            _extraVel = velocity;
+        }
+
+        /// <summary>
+        /// Move by setting the override velocity for one physics frame.
+        /// <para>Overrides active velocity and velocity physics calculations.
+        /// </summary>
+        /// <param name="velocity"></param>
+        /// <param name="clearActiveVelocity"></param>
+        /// <param name="ignoreConnectedGround"></param>
+        public void SetOverrideVelocity(Vector3 velocity,
+            bool clearActiveVelocity = false, bool ignoreConnectedGround = false)
         {
             if (ignoreConnectedGround)
             {
-                _directVel = velocity;
+                _overrideVel = velocity;
             }
             else
             {
-                _directVel = velocity + _connectedBodyVel;
+                _overrideVel = velocity + _connectedBodyVel;
             }
-            _hasDirectVel = true;
+            _hasOverrideVel = true;
+            if (clearActiveVelocity) ClearActiveVelocity();
+        }
+
+        /// <summary>
+        /// Directly move by the specified delta position.
+        /// Ususally used for applying root motion.
+        /// </summary>
+        /// <param name="deltaPosition"></param>
+        /// <param name="alignToGround"></param>
+        /// <param name="restictToGround"></param>
+        public void MoveDeltaPosition(Vector3 deltaPosition,
+            bool alignToGround = true, bool restictToGround = false)
+        {
+            if (alignToGround)
+            {
+                deltaPosition = IsOnGround ? AlignVelocityToNormal(deltaPosition, SlopeNormal) : deltaPosition;
+            }
+
+            if (restictToGround)
+            {
+                GroundInfo predictedGroundInfo;
+                bool willBeOnGround = PredictProbeGround(out predictedGroundInfo, deltaPosition);
+                if (!willBeOnGround) return;
+            }
+
+            Rigidbody.MovePosition(Rigidbody.position + deltaPosition);
         }
 
         // Internal method for moving. Sets rigidbody velocity.
@@ -324,48 +440,55 @@ namespace Nap.Movement
         {
             Vector3 finalVel = CalcFinalVel(deltaTime);
 
-            //// Perform predictive ground probing.
-            //if (_usePredictiveStepVel || _restrictToGround)
-            //{
-            //    GroundInfo predictedGroundInfo;
-            //    bool willBeOnGround = PredictProbeGround(out predictedGroundInfo, finalVel * deltaTime);
-            //    if (willBeOnGround)
-            //    {
-            //        Debug.Log(_connectedBodyPosDelta.y);
-            //        // Update ground floating adjustment velocity.
-            //        if (_usePredictiveStepVel) _groundStepVel =
-            //                CalcGroundStepVel(predictedGroundInfo.Distance, deltaTime, _connectedBodyPosDelta.y);
-            //    }
-            //    else if (_restrictToGround) finalVel.x = finalVel.z = 0f;
-            //}
+            if (!IsOnGround)
+            {
+                // Update gravity speed.
+                _gravitySpeed += deltaTime * _gravityAccel;
+                if (_gravitySpeed > _maxFallSpeed) _gravitySpeed = _maxFallSpeed;
+                if (_enableGravity) finalVel.y -= _gravitySpeed;
+
+                if (_predictGroundWhenFalling && finalVel.y < 0f)
+                {
+                    GroundInfo predictedGroundInfo;
+                    bool willBeOnGround = PredictProbeGround(out predictedGroundInfo, finalVel * deltaTime);
+                    if (willBeOnGround)
+                        _groundStepVel = CalcGroundStepVel(predictedGroundInfo.Distance, deltaTime, noSmoothing: true);
+                }
+            }
+            else if (_restrictToGround)
+            {
+                GroundInfo predictedGroundInfo;
+                bool willBeOnGround = PredictProbeGround(out predictedGroundInfo, finalVel * deltaTime);
+                if (!willBeOnGround) finalVel.x = finalVel.z = 0f;
+            }
 
             Move(finalVel);
 
             // Clean up.
-            if (_savedActiveVel != Vector3.zero) _nonZeroActiveDirection = _savedActiveVel.normalized;
+            if (_activeVel != Vector3.zero) _nonZeroActiveDirection = _activeVel.normalized;
             //_inputSpeed = 0f;
             //_inputDirection = Vector3.zero;
             _hasInput = false;
-            _hasDirectVel = false;
+            _hasOverrideVel = false;
         }
 
         private Vector3 CalcFinalVel(float deltaTime)
         {
             // Refresh active velocity.
             // Add any velocity from input, apply velocity physics to existing active velocity.
-            bool noActiveVel = _savedActiveVel == Vector3.zero && (_inputSpeed == 0f || _inputDirection == Vector3.zero);
+            bool noActiveVel = _activeVel == Vector3.zero && (_inputSpeed == 0f || _inputDirection == Vector3.zero);
             if (!noActiveVel)
             {
                 switch (_velocityMode)
                 {
                     case VelocityPhysicsMode.None:
-                        _savedActiveVel = _inputSpeed * _inputDirection;
+                        _activeVel = _inputSpeed * _inputDirection;
                         break;
                     case VelocityPhysicsMode.Simple:
-                        _savedActiveVel = CalculatePhysicalVelocitySimple(_savedActiveVel, _inputSpeed * _inputDirection, _speedChange);
+                        _activeVel = CalculatePhysicalVelocitySimple(_activeVel, _inputSpeed * _inputDirection, _speedChange);
                         break;
                     case VelocityPhysicsMode.Advanced:
-                        _savedActiveVel = CalculatePhysicalVelocity(_savedActiveVel, _inputSpeed, _inputDirection,
+                        _activeVel = CalculatePhysicalVelocity(_activeVel, _inputSpeed, _inputDirection,
                             deltaTime,
                             accel: _velocityConfig.Accel,
                             decel: _velocityConfig.Decel, brakingDecel: _velocityConfig.BrakingDecel,
@@ -374,28 +497,25 @@ namespace Nap.Movement
                 }
             }
 
-            // Approximate slope.
-            SlopeNormal = CalcSlopeNormal(GroundNormal);
+            Vector3 vel = _hasOverrideVel ? _overrideVel : _activeVel;
 
             // Align active velocity to slope normal.
-            Vector3 adjustedActiveVel = IsOnGround ? AlignVelocityToNormal(_savedActiveVel, SlopeNormal) : _savedActiveVel;
-
-#if UNITY_EDITOR
-            Debug.DrawLine(transform.position, transform.position + SlopeNormal, Color.cyan);
-#endif
+            SlopeNormal = CalcSlopeNormal(GroundNormal);
+            Vector3 alignedVel = IsOnGround ? AlignVelocityToNormal(vel, SlopeNormal) : vel;
 
             // Apply impulses.
             Vector3 impulseVel = RefreshImpulses(deltaTime);
 
 #if UNITY_EDITOR
-            // Ground normal.
-            //Debug.DrawLine(transform.position, transform.position + GroundNormal * 0.5f, Color.blue);
+            // Slope normal.
+            if (_showVelocityDebug) Debug.DrawLine(transform.position, transform.position + SlopeNormal, Color.cyan);
             // Desired velocity line.
-            Debug.DrawLine(transform.position, transform.position + adjustedActiveVel, Color.yellow);
+            if (_showVelocityDebug) Debug.DrawLine(transform.position, transform.position + alignedVel, Color.yellow);
 #endif
 
-            Vector3 finalVel = _hasDirectVel ? _directVel
-                : _connectedBodyVel + adjustedActiveVel + _extraVel + impulseVel;
+            if (_hasOverrideVel) return alignedVel;
+            Vector3 finalVel = alignedVel + _passiveVel + _extraVel + impulseVel;
+            finalVel += _connectedBodyVel;
             return finalVel;
         }
 
@@ -506,7 +626,7 @@ namespace Nap.Movement
         /// <returns></returns>
         private bool EvaluateProbeGround(out GroundInfo groundInfo, Vector3 offset)
         {
-            bool isOnGround = PredictProbeGround(out groundInfo, offset);
+            bool isOnGround = PredictProbeGround(out groundInfo, offset, _useRealGroundNormal);
             if (isOnGround)
             {
                 GroundNormal = groundInfo.Normal;
@@ -534,9 +654,12 @@ namespace Nap.Movement
             }
 
 #if UNITY_EDITOR
-            Vector3 desiredGroundPoint = ColliderCenter + offset - new Vector3(0f, DesiredGroundDistance, 0f);
-            // Desired ground distance.
-            Debug.DrawLine(ColliderCenter + offset, desiredGroundPoint, Color.green);
+            if (_showGroundProbingDebug)
+            {
+                Vector3 desiredGroundPoint = ColliderCenter + offset - new Vector3(0f, DesiredGroundDistance, 0f);
+                // Desired ground distance.
+                if (_showGroundProbingDebug) Debug.DrawLine(ColliderCenter + offset, desiredGroundPoint, Color.green);
+            }
 #endif
 
             return isOnGround;
@@ -547,9 +670,9 @@ namespace Nap.Movement
         /// </summary>
         /// <param name="groundInfo"></param>
         /// <returns></returns>
-        public bool PredictProbeGround(out GroundInfo groundInfo)
+        public bool PredictProbeGround(out GroundInfo groundInfo, bool useRealGroundNormal = false)
         {
-            return PredictProbeGround(out groundInfo, Vector3.zero);
+            return PredictProbeGround(out groundInfo, Vector3.zero, useRealGroundNormal);
         }
 
         /// <summary>
@@ -558,11 +681,11 @@ namespace Nap.Movement
         /// <param name="groundInfo"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public bool PredictProbeGround(out GroundInfo groundInfo, Vector3 offset)
+        public bool PredictProbeGround(out GroundInfo groundInfo, Vector3 offset, bool useRealGroundNormal = false)
         {
             // Ground probing.
             bool isOnGround = GroundSensor.ProbeGround(out groundInfo, _totalGroundProbeRange, _groundProbeThickness,
-                ColliderCenter + offset, layerMask: _groundLayer);
+                ColliderCenter + offset, layerMask: _groundLayer, useRealGroundNormal);
             return isOnGround;
         }
         #endregion
@@ -615,7 +738,7 @@ namespace Nap.Movement
             }
 
 #if UNITY_EDITOR
-            Debug.DrawLine(backPoint, frontPoint, Color.white);
+            if (_showSlopeDebug) Debug.DrawLine(backPoint, frontPoint, Color.white);
 #endif
 
             return foundSlope;
@@ -665,7 +788,7 @@ namespace Nap.Movement
                     frontPoint = frontHitInfo.point;
                     _slopePoints.Add(frontPoint);
 #if UNITY_EDITOR
-                    Debug.DrawLine(frontOrigin, frontPoint, Color.white);
+                    if (_showSlopeDebug) Debug.DrawLine(frontOrigin, frontPoint, Color.white);
 #endif
                 }
                 else
@@ -688,7 +811,7 @@ namespace Nap.Movement
                     backPoint = backHitInfo.point;
                     _slopePoints.Add(backPoint);
 #if UNITY_EDITOR
-                    Debug.DrawLine(backOrigin, backPoint, Color.white);
+                    if (_showSlopeDebug) Debug.DrawLine(backOrigin, backPoint, Color.white);
 #endif
                 }
                 else break;
@@ -711,7 +834,7 @@ namespace Nap.Movement
                 foundSlope = true;
 
 #if UNITY_EDITOR
-                Debug.DrawLine(point, nextPoint, Color.white);
+                if (_showSlopeDebug) Debug.DrawLine(point, nextPoint, Color.white);
 #endif
             }
             if (foundSlope)
@@ -719,7 +842,10 @@ namespace Nap.Movement
                 slope = slope.normalized;
                 slopeNormal = slopeNormal.normalized;
 #if UNITY_EDITOR
-                Debug.DrawLine(_slopePoints[0], _slopePoints[0] + slope * (_slopeProbeFrontOffset + _slopeProbeBackOffset), Color.cyan);
+                if (_showSlopeDebug)
+                {
+                    Debug.DrawLine(_slopePoints[0], _slopePoints[0] + slope * (_slopeProbeFrontOffset + _slopeProbeBackOffset), Color.cyan);
+                }
 #endif
             }
 
@@ -734,13 +860,13 @@ namespace Nap.Movement
         /// <param name="groundDistance"></param>
         /// <param name="deltaTime"></param>
         /// <returns></returns>
-        private Vector3 CalcGroundStepVel(float groundDistance, float deltaTime, float offsetY = 0f)
+        private Vector3 CalcGroundStepVel(float groundDistance, float deltaTime, float offsetY = 0f, bool noSmoothing = false)
         {
             Vector3 vel = _groundStepVel;
             float requiredDelta = (_capsuleHalfHeight + _stepHeight + offsetY) - groundDistance;
             bool shouldGoUp = requiredDelta > 0f;
             bool shouldGoDown = requiredDelta < 0f;
-            if (_hasGroundStateChanged || _isTouchingCeiling)
+            if (_hasGroundStateChanged || _isTouchingCeiling || noSmoothing)
             {
                 vel = Vector3.up * (requiredDelta / deltaTime);
             }
@@ -754,12 +880,15 @@ namespace Nap.Movement
 
         private void UpdateGroundState(bool isOnGround)
         {
+            // Gained ground contact.
             if (!_wasOnGround && IsOnGround)
             {
+                _gravitySpeed = 0f;
                 _hasGroundStateChanged = true;
                 GainedGroundContact.Invoke();
                 UseExtraGroundThresholdDistance = true;
             }
+            // Lost ground contact.
             else if (_wasOnGround && !IsOnGround)
             {
                 _hasGroundStateChanged = true;
@@ -804,7 +933,7 @@ namespace Nap.Movement
             float desiredSpeedSqr = desiredSpeed * desiredSpeed;
             Vector3 currentDirection = currentVel.normalized;
             Vector3 desiredVel = desiredSpeed * desiredDirection;
-            Debug.Log(currentSpeedSqr + " > " + desiredSpeedSqr + " : " + (currentSpeedSqr > (desiredSpeedSqr * 1.01f)));
+            //Debug.Log(currentSpeedSqr + " > " + desiredSpeedSqr + " : " + (currentSpeedSqr > (desiredSpeedSqr * 1.01f)));
 
             if (currentSpeedSqr > desiredSpeedSqr * 1.01f)
             {
@@ -818,7 +947,7 @@ namespace Nap.Movement
             {
                 float currentSpeed = currentVel.magnitude;
                 currentVel = ApplyFriction(currentVel, currentSpeed, desiredDirection, friction, deltaTime);
-;
+                ;
                 if (currentSpeed < desiredSpeed)
                 {
                     currentVel += deltaTime * accel * desiredDirection;
@@ -827,10 +956,13 @@ namespace Nap.Movement
             }
 
 #if UNITY_EDITOR
-            // Desired velocity line.
-            Debug.DrawLine(transform.position, transform.position + desiredVel, Color.gray);
-            // Final velocity line.
-            Debug.DrawLine(transform.position, transform.position + currentVel, Color.black);
+            if (_showVelocityDebug)
+            {
+                // Desired velocity line.
+                Debug.DrawLine(transform.position, transform.position + desiredVel, Color.gray);
+                // Final velocity line.
+                Debug.DrawLine(transform.position, transform.position + currentVel, Color.black);
+            }
 #endif
 
             return currentVel;
@@ -844,7 +976,7 @@ namespace Nap.Movement
         /// <param name="decel"></param>
         /// <param name="deltaTime"></param>
         /// <returns></returns>
-        private static Vector3 ApplyVelocityBraking(Vector3 currentVel, Vector3 currentDirection, 
+        private static Vector3 ApplyVelocityBraking(Vector3 currentVel, Vector3 currentDirection,
             float friction, float decel, float deltaTime)
         {
             bool isZeroFriction = friction == 0f;
@@ -897,7 +1029,7 @@ namespace Nap.Movement
                 // limit this impulse speed so the final result not exceed its max speed when combined with the active velocity.
                 if (impulse.SpeedModeFlag == Impulse.SpeedMode.Max)
                 {
-                    thisImpulseVel = Vector3.ClampMagnitude(thisImpulseVel, impulse.MaxSpeed - _savedActiveVel.magnitude);
+                    thisImpulseVel = Vector3.ClampMagnitude(thisImpulseVel, impulse.MaxSpeed - _activeVel.magnitude);
                 }
                 // If flagged as align to ground.
                 if (impulse.AlignToGroundFlag == true)
@@ -936,64 +1068,6 @@ namespace Nap.Movement
         }
         #endregion
 
-        #region Step Traversal Methods (Legacy)
-        private bool FindStep(out Vector3 stepUpOffset, List<Collision> collisions, float groundHeight)
-        {
-            stepUpOffset = default(Vector3);
-            for (int i = 0; i < collisions.Count; i++)
-            {
-                Collision collision = collisions[i];
-                for (int j = 0; j < collision.contacts.Length; j++)
-                {
-                    bool test = ResolveStepUp(out stepUpOffset, collision.GetContact(j), groundHeight);
-                    if (test) return test;
-                }
-            }
-            return false;
-        }
-
-        private bool ResolveStepUp(out Vector3 stepUpOffset, ContactPoint stepTestContact, float groundHeight)
-        {
-            stepUpOffset = default(Vector3);
-            Collider stepCollider = stepTestContact.otherCollider;
-
-            // Contact normal must be a ground normal.
-            if (Mathf.Abs(stepTestContact.normal.y) <= _minGroundAngleDot)
-            {
-                return false;
-            }
-
-            if (!(stepTestContact.point.y - groundHeight < _stepHeight))
-            {
-                return false;
-            }
-
-            // Check step space in front of us.
-            RaycastHit hitInfo;
-            float stepTestHeight = groundHeight + _stepHeight + 0.01f;
-            Vector3 stepTestInvDir = new Vector3(-stepTestContact.normal.x, 0f, -stepTestContact.normal.z);
-            Vector3 origin = new Vector3(stepTestContact.point.x, stepTestHeight, stepTestContact.point.z);
-            Vector3 direction = Vector3.down;
-
-            if (!(stepCollider.Raycast(new Ray(origin, direction), out hitInfo, _stepHeight)))
-            {
-                return false;
-            }
-
-#if UNITY_EDITOR
-            Debug.DrawLine(origin, direction * 10f, Color.red);
-#endif
-
-            // Calculate points.
-            Vector3 stepUpPoint = new Vector3(stepTestContact.point.x, hitInfo.point.y + 0.0001f, stepTestContact.point.z)
-                + (stepTestInvDir * _stepSearchOvershoot);
-            Vector3 stepUpPointOffset = stepUpPoint - new Vector3(stepTestContact.point.x, groundHeight, stepTestContact.point.z);
-
-            stepUpOffset = stepUpPointOffset;
-            return true;
-        }
-        #endregion
-
         #region Velocity Manipulation Methods
         /// <summary>
         /// Align velocity to a plane defined by the specified plane normal.
@@ -1013,14 +1087,14 @@ namespace Nap.Movement
         private void AddComponents()
         {
             TryGetComponent(out Rigidbody rb);
-            Rigidbody = rb ?? gameObject.AddComponent<Rigidbody>();
+            Rigidbody = rb;
             rb.useGravity = false;
             rb.interpolation = RigidbodyInterpolation.Interpolate;
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             rb.freezeRotation = true;
 
             TryGetComponent(out CapsuleCollider capsuleCollider);
-            Collider = capsuleCollider ?? gameObject.AddComponent<CapsuleCollider>();
+            Collider = capsuleCollider;
             _capsuleCollider = (CapsuleCollider)Collider;
 
             if (GroundSensor == null) GroundSensor = new GroundSensor();
@@ -1061,8 +1135,6 @@ namespace Nap.Movement
             ExtraGroundThresholdDistance = Mathf.Max(_stepHeight, _minExtraGroundThreshold);
             // Update total length for ground probing.
             _totalGroundProbeRange = DesiredGroundDistance + _groundProbeRange;
-
-            GroundSensor.UseRealGroundNormal = _useRealGroundNormal;
         }
 
         /// <summary>
@@ -1079,6 +1151,7 @@ namespace Nap.Movement
 #if UNITY_EDITOR
         private void DrawContactNormals()
         {
+            if (!_showContactDebug) return;
             for (int i = 0; i < _collisions.Count; i++)
             {
                 Collision collision = _collisions[i];

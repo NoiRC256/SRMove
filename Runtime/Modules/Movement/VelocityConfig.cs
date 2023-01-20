@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace Nap.Movement
+namespace NekoLib.Movement
 {
     [System.Serializable]
     public class VelocityConfig
@@ -12,8 +12,8 @@ namespace Nap.Movement
         private const float kDefaultAccel = 30f;
         private const float kDefaultDecel = 30f;
         private const float kDefaultBrakingDecel = 30f;
-        private const float kDefaultFriction = 30f;
-        private const float kDefaultBrakingFriction = 5f;
+        private const float kDefaultFriction = 20f;
+        private const float kDefaultBrakingFriction = 0f;
 
         [SerializeField][Range(0f, kMaxAccel)] private float _accel = kDefaultAccel;
         [SerializeField][Range(0f, kMaxDecel)] private float _decel = kDefaultDecel;

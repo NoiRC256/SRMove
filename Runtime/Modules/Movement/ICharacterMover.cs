@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace Nap.Movement
+namespace NekoLib.Movement
 {
     public interface ICharacterMover
     {
@@ -15,10 +15,10 @@ namespace Nap.Movement
         event Action LostGroundContact;
         #endregion
 
-        void SetInputVelocity(float inputSpeed, Vector3 inputDirection);
+        void InputMove(float inputSpeed, Vector3 inputDirection);
         void SetExtraVelocity(Vector3 vel);
-        void DirectMove(Vector3 velocity, bool restrictToGround = false, bool ignoreConnectedGround = false);
-
+        public void SetOverrideVelocity(Vector3 velocity,
+            bool clearActiveVelocity = false, bool ignoreConnectedGround = false);
         void AddImpulse(Impulse impulse);
         void RemoveImpulse(Impulse impulse);
     }

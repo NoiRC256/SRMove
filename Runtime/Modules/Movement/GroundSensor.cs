@@ -1,12 +1,11 @@
 using UnityEngine;
 
-namespace Nap.Movement
+namespace NekoLib.Movement
 {
     public class GroundSensor
     {
         public float GroundThresholdDistance { get; set; }
         public LayerMask LayerMask { get; set; }
-        public bool UseRealGroundNormal { get; set; }
 
         /// <summary>
         /// Probe ground from origin downwards for a specified range.
@@ -16,9 +15,9 @@ namespace Nap.Movement
         /// <param name="thickness"></param>
         /// <param name="origin"></param>
         /// <returns></returns>
-        public bool ProbeGround(out GroundInfo groundInfo, float range, float thickness, Vector3 origin)
+        public bool ProbeGround(out GroundInfo groundInfo, float range, float thickness, Vector3 origin, bool useRealGroundNormal = false)
         {
-            return ProbeGround(out groundInfo, range, thickness, origin, LayerMask);
+            return ProbeGround(out groundInfo, range, thickness, origin, LayerMask, useRealGroundNormal);
         }
 
         /// <summary>
@@ -30,7 +29,8 @@ namespace Nap.Movement
         /// <param name="origin"></param>
         /// <param name="layerMask"></param>
         /// <returns></returns>
-        public bool ProbeGround(out GroundInfo groundInfo, float range, float thickness, Vector3 origin, LayerMask layerMask)
+        public bool ProbeGround(out GroundInfo groundInfo, float range, float thickness, Vector3 origin, LayerMask layerMask,
+            bool useRealGroundNormal = false)
         {
             groundInfo = GroundInfo.Empty;
             bool isGroundInRange = false;
@@ -47,8 +47,8 @@ namespace Nap.Movement
             }
 
 #if UNITY_EDITOR
-            Vector3 groundThresholdPoint = origin - new Vector3(0f, GroundThresholdDistance, 0f);
-            Debug.DrawLine(origin, groundThresholdPoint, Color.grey);
+            //Vector3 groundThresholdPoint = origin - new Vector3(0f, GroundThresholdDistance, 0f);
+            //Debug.DrawLine(origin, groundThresholdPoint, Color.grey);
 #endif
 
             if (hasHit)
@@ -61,7 +61,7 @@ namespace Nap.Movement
                     groundInfo.Point = hitInfo.point;
                     groundInfo.Collider = hitInfo.collider;
 
-                    if (UseRealGroundNormal && thickness > 0f)
+                    if (useRealGroundNormal && thickness > 0f)
                     {
                         Vector3 tmpOrigin = hitInfo.point + new Vector3(0f, 0.01f, 0f);
                         RaycastHit realNormalHitInfo;

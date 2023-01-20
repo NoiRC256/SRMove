@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering.Universal.Internal;
 
-namespace Nap.Movement
+namespace NekoLib.Movement
 {
     public struct GroundInfo
     {
