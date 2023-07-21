@@ -1,5 +1,10 @@
 # Overview
-NekoMovement is an experimental rigidbody physics character movement solution, designed as an alternative to Unity's Character Controller. It provides the following features:
+This is a rigidbody character movement solution that utilizes predictive damping to achieve smooth movement on stairs and obstacles.
+
+[WebGL Demo](https://noirccc.net/blog/predictive-damping-demo)
+
+
+It provides the following features:
 
 
 :heavy_check_mark: **Intuitive collider adjustment** - provides the ability to tweak movement collider height with fixed bottom / tweak floating step height with fixed top.
@@ -10,12 +15,9 @@ NekoMovement is an experimental rigidbody physics character movement solution, d
 
 :heavy_check_mark: **Smooth stair traversal** - smoothly move up and down on steps and stairs. Gives reliable smoothing behaviour when combined with slope approximation. 
 
-:heavy_check_mark: **Velocity physics** - provides the capability to teak the acceleration, deceleration, friction of planar movement. There are independent velocity channels to separate different types of velocity.
+:heavy_check_mark: **Velocity physics** - provides different velocity modes.
 
-:heavy_check_mark: **Inherit ground velocity** - correctly handles velocity when on moving platforms.
-
-:heavy_check_mark: **Impulses** - provides a controllable way to simulate physical impulses using animation curves.
-
+:heavy_check_mark: **Inherit ground velocity** - correctly handles velocity on moving platforms.
 
 ### Environment
 
@@ -23,9 +25,13 @@ Developed and tested in Unity 2022.2.0b12
 
 # Quick Start
 
-- Add a `CharacterMover` component to a gameobject. A rigidbody and capsule collider will be automatically added and configured.
-- In your own movement controller, import `NekoLib.Movement` namespace, reference the `CharacterMover` instance.
-- Now you can implement your movement statemachine. Let `CharacterMover` handle the rest.
+`CharacterMover` can be used like Unity's `CharacterContoller`.
+
+- Add a `CharacterMover` component to a gameobject.
+
+- In your own movement controller, reference a `CharacterMover` instance using `NekoLib.Movement`.
+
+- Implement your control logic. Let `CharacterMover` handle the rest.
 
 A simple example:
 ```csharp
