@@ -1,9 +1,6 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Rendering.Universal.Internal;
 
-namespace NekoLib.Movement
+namespace NekoLib.SRMove
 {
     public struct GroundInfo
     {

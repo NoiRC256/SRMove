@@ -1,9 +1,10 @@
 using UnityEngine;
 
-namespace NekoLib.Movement
+namespace NekoLib.SRMove.NekoPhysics
 {
+
     [System.Serializable]
-    public class VelocityConfig
+    public class VelocityProfile
     {
         public const float kMaxAccel = 50f;
         public const float kMaxDecel = 50f;
@@ -21,7 +22,7 @@ namespace NekoLib.Movement
         [SerializeField][Range(0f, kMaxFriction)] private float _friction = kDefaultFriction;
         [SerializeField][Range(0f, kMaxFriction)] private float _brakingFriction = kDefaultBrakingFriction;
 
-        public VelocityConfig(float accel = kDefaultAccel,
+        public VelocityProfile(float accel = kDefaultAccel,
             float decel = kDefaultDecel, float brakingDecel = kDefaultBrakingDecel,
             float friction = kDefaultFriction, float brakingFriction = kDefaultBrakingFriction)
         {
