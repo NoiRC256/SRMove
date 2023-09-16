@@ -78,10 +78,10 @@ public class MyMovementController : MonoBehaviour
 # Usage
 
 ### Movement Methods
-`CharacterMover` provides several methods for initiating movement.
+`CharacterMover` provides several methods for movement.
 #### 1. Move
 
-This is the easiest way to get moving. Call `Move` every fixed update to set the intended movment velocity.
+This is the easiest way to get moving. Call `Move` every fixed update to set the intended movement velocity.
 
 ```csharp
 Move(Vector3 velocity);
