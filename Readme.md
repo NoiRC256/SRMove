@@ -1,23 +1,27 @@
+
 # Overview
-This is a rigidbody character movement solution that utilizes predictive damping to achieve smooth movement on stairs and obstacles.
+[![license](https://img.shields.io/badge/license-MIT-green.svg?style=flat&cacheSeconds=2592000)](https://github.com/NoiRC256/SRMove/blob/main/LICENSE)
+[![WebGL Demo](https://img.shields.io/badge/demo-WebGL-orange.svg?style=flat&logo=google-chrome&logoColor=white&cacheSeconds=2592000)](https://noirccc.net/blog/predictive-damping-demo)
+
+This is a rigidbody character movement solution that uses efficient slope approximation to move smoothly on stairs and obstacles.
 
 [WebGL Demo](https://noirccc.net/blog/predictive-damping-demo)
 
 
-It provides the following features:
+Key Features:
 
 
-:heavy_check_mark: **Intuitive collider adjustment** - provides the ability to tweak movement collider height with fixed bottom / tweak floating step height with fixed top.
+:heavy_check_mark: **Intuitive collider adjustment** - Configure movement collider height while keeping bottom fixed. Configure floating step height while keeping top fixed.
 
-:heavy_check_mark: **Ground detection** - updates ground contact state each physics frame. Performs ground detection with configurable parameters, using spherecast to support ledge perching.
+:heavy_check_mark: **Ground detection** - Ground contact information is provided each physics frame. Performs ground detection with configurable parameters, using spherecast to support ledge perching.
 
-:heavy_check_mark: **Slope traversal with ground snapping** - provides the option to snap to ground when moving down slopes. Supports slope approximation, which provides interpolated slope information on complex terrain.
+:heavy_check_mark: **Slope traversal with ground snapping** - Snap to ground surface while moving. Correctly handles velocity on angled surfaces.
 
-:heavy_check_mark: **Smooth stair traversal** - smoothly move up and down on steps and stairs. Gives reliable smoothing behaviour when combined with slope approximation. 
+:heavy_check_mark: **Smooth stair traversal** - Smoothly move up and down on steps and stairs. Produces reliable smoothing behaviour when combined with slope approximation. 
 
-:heavy_check_mark: **Velocity physics** - provides different velocity modes.
+:heavy_check_mark: **Velocity physics** - Configurable velocity modes with different acceleration / friction.
 
-:heavy_check_mark: **Inherit ground velocity** - correctly handles velocity on moving platforms.
+:heavy_check_mark: **Supports moving surfaces** - Correctly handles velocity on moving platforms.
 
 ### Environment
 
