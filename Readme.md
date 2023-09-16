@@ -29,43 +29,48 @@ Developed and tested in Unity 2022.2.0b12
 
 # Quick Start
 
-`CharacterMover` can be used like Unity's `CharacterContoller`.
+`CharacterMover` is equivalent to Unity's `CharacterContoller`.
 
-- Add a `CharacterMover` component to a gameobject.
+- Add a `CharacterMover` component to the gameobject you want to move.
 
-- In your own movement controller, reference a `CharacterMover` instance using `NekoLib.Movement`.
+- In your own movement controller, use `NekoLib.SRMove`.
 
-- Implement your control logic. Let `CharacterMover` handle the rest.
+- Implement your control logic. Reference a `CharacterMover` instance to handle the movement.
 
 A simple example:
 ```csharp
+using UnityEngine;
+using NekoLib.SRMove;
+
 // Example third-person movement controller.
 public class MyMovementController : MonoBehaviour
 {
     [SerializeField] private MyInputSource _inputSource; // Example input source.
-    [SerializeField] private NekoLib.Movement.CharacterMover _characterMover;
-    [SerializeField] private Transform _cameraTr;
+    [SerializeField] private CharacterMover _characterMover;
+    [SerializeField] private Transform _cameraTr; // Reference transform used to determine movement direction.
     [SerializeField] private float _speed = 3f;
 
-    private void Update()
+    private void FixedUpdate()
     {
-        if(!_inputSource.HasMovementInput())
+        if (!_inputSource.HasMoveInput())
         {
-            // Idle.
-            _characterMover.InputMove(0f, Vector3.zero);
+            _characterMover.Move(Vector3.zero);
             return;
         }
-        // Moving.
-        Vector3 inputDirection = DirectionFromInput(_inputSource.GetMovementInput());
-        _characterMover.InputMove(_speed, inputDirection);
+
+        // Calculate the direction you want to move along.
+        Vector3 moveDirection = GetMoveDirection(_input.GetMoveInput(), _cameraTr);
+
+        // Move.
+        _characterMover.Move(_speed * moveDirection);
     }
 
-    // Convert 2D input vector to 3D direction relative to camera transform.
-    private Vector3 DirectionFromInput(Vector2 input)
+    // Convert 2D input vector to 3D worldspace direction relative to the reference transform.
+    private Vector3 GetMoveDirection(Vector2 input, Transform directionReference)
     {
-        Vector3 direction = input.x * Vector3.ProjectOnPlane(_cameraTr.right, Vector3.up);
-        direction += input.y * Vector3.ProjectOnPlane(_cameraTr.forward, Vector3.up);
-        return direction.normalized;
+         Vector3 direction = (input.x * Vector3.ProjectOnPlane(directionReference.right, Vector3.up)).normalized;
+         direction += (input.y * Vector3.ProjectOnPlane(directionReference.forward, Vector3.up)).normalized;
+         return direction.normalized;
     }
 }
 ```
@@ -74,44 +79,42 @@ public class MyMovementController : MonoBehaviour
 
 ### Movement Methods
 `CharacterMover` provides several methods for initiating movement.
-#### 1. Active Velocity
-This is the easiest way to get moving. 
-Sets the `activeVelocity` of the mover based on the provided speed and direction `activeVelocity` will be part of the final rigidbody velocity at the end of each fixed update.
-```csharp
-InputMove(float speed, Vector3 direction)
-```
-`activeVelocity` **persists across fixed updates**, and undergoes built-in velocity physics processing based on the velocity mode. 
-Three different velocity modes are provided: None, Simple Advanced. The current mode can be set in the `_velocityMode` inspector field.
-- None - No velocity physics. `activeVelocity` changes instantaneously. 
-- Simple - `activeVelocity` smoothly changes based on the `_speedChange` inspector field.
-- Advanced - `activeVelocity` smoothly changes based on acceleration, deceleration, braking deceleration, friction, and braking friction set in the `_velocityConfig` inspector field. 
+#### 1. Move
 
+This is the easiest way to get moving. Call `Move` every fixed update to set the intended movment velocity.
 
-#### 2. Passive Velocity
-`passiveVelocity` is a background velocity that **persists across fixed updates**.
 ```csharp
-SetPassiveVelocity(Vector3 velocity);
+Move(Vector3 velocity);
+Move(float speed, Vector3 direction);
 ```
 
-#### 3. Extra Velocity
-`extraVelocity` will be **cleared at the end of each fixed update**.
+#### 2. Active Velocity
+`activeVelocity` is an internal velocity field that CharacterMover uses to set Rigidbody velocity at the end of each fixed update. When the Velocity Mode inspector field is set to a mode that uses velocity physics (i.e. acceleration, deceleration, friction), `activeVelocity` will persist across fixed updates and gradually change based on the configured velocity physics logic.
+
+To ignore any applicable velocity physics and directly set CharacerMover velocity, you can set `activeVelocity` by:
 ```csharp
-SetExtraVelocity(Vector3 velocity);
+SetActiveVelocity(Vector3 velocity);
 ```
 
-#### 4. Override Velocity
-Velocity that overrides `activeVelocity`, `passiveVelocity`, `extraVelocity` when present. Will be **cleared at the end of each fixed update**.
+You can clear the `activeVelocity` by:
 ```csharp
-SetOverrideVelocity(Vector3 velocity, bool clearActiveVelocity = false, bool ignoreConnectedGround = false)
+ClearActiveVelocity();
 ```
 
-#### 5. Move Position
-Directly move to a position based on the provided delta position. Usually used to apply root motion.
 
-Calls `Rigidbody.MovePosition` after calculating the position to move to based on the provided parameters and the current state of the mover.
+#### 3. Delta Position
+
+Directly sets the intended position change for the current fixed update.
+
+This can be used to drive CharacterMover by animation root motion.
 ```csharp
-MoveDeltaPosition(Vector3 deltaPosition, bool alignToGround = true, bool restrictToGround = false)
+MoveDeltaPosition(Vector3 deltaPosition, bool alignToGround, bool restrictToGround)
 ```
-- `alignToGround` - If grounded, will move to a target position along the current ground slope plane.
-- `restrictToGround` - If grounded, will only move if the movement will not cause the mover to leave ground.
+
+### Velocity Physics Modes
+Use the Velocity Mode inspector field on a CharacerMover to configure velocity physics behaviour.
+- Raw: Instant acceleration and deceleration
+- Simple: Fixed acceleration and deceleration based on the Speed Change Rate inspector field
+
+
 
