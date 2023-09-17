@@ -3,15 +3,15 @@
 [![license](https://img.shields.io/badge/license-MIT-green.svg?style=flat&cacheSeconds=2592000)](https://github.com/NoiRC256/SRMove/blob/main/LICENSE)
 [![WebGL Demo](https://img.shields.io/badge/demo-WebGL-orange.svg?style=flat&logo=google-chrome&logoColor=white&cacheSeconds=2592000)](https://noirccc.net/blog/predictive-damping-demo)
 
-This is a rigidbody character movement solution that uses efficient slope approximation to move smoothly on stairs and obstacles.
+SRMove is a rigidbody character movement solution that uses efficient slope approximation to move smoothly on stairs and obstacles.
+
+
+This project aims to recreate the low-level character movement logic used in Genshin Impact and Honkai: Star Rail. In particular, in Genshin Impact, even though character IK is disabled while the character is moving, the character is still able to travel smoothly on stairs that have unmodified mesh colliders. This is potentially the work of some slope approximation system, which allows character movement logic to consider *stairs* as *angled ground* for the purpose of aligning movement velocity with ground surface.
 
 [WebGL Demo](https://noirccc.net/blog/predictive-damping-demo)
 
 
-Key Features:
-
-
-:heavy_check_mark: **Intuitive collider adjustment** - Configure movement collider height while keeping bottom fixed. Configure floating step height while keeping top fixed
+## Key Features
 
 :heavy_check_mark: **Ground detection** - Ground contact information is provided each physics frame. Performs ground detection with configurable parameters, using spherecast to support ledge perching
 
@@ -19,9 +19,11 @@ Key Features:
 
 :heavy_check_mark: **Smooth stair traversal** - Smoothly move up and down on steps and stairs. Produces reliable smoothing behaviour when combined with slope approximation
 
-:heavy_check_mark: **Velocity physics** - Configurable velocity modes
+:heavy_check_mark: **Velocity physics** - Optional built-in accleration and deceleration.
 
 :heavy_check_mark: **Supports moving surfaces** - Correctly handles velocity on moving platforms
+
+:heavy_check_mark: **Intuitive collider adjustment** - Configure collider height or step height while keeping collider bottom or top fixed
 
 ### Environment
 
@@ -29,7 +31,7 @@ Developed and tested in Unity 2022.2.0b12
 
 # Quick Start
 
-`CharacterMover` is the equivalent of Unity's `CharacterContoller`.
+`CharacterMover` is an equivalent of Unity's `CharacterContoller`.
 
 - Add a `CharacterMover` component to the gameobject you want to move.
 
