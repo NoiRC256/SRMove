@@ -8,7 +8,7 @@ SRMove is a rigidbody character movement solution that uses efficient slope appr
 
 This project aims to recreate the low-level character movement logic used in Genshin Impact and Honkai: Star Rail. 
 
-<img src="https://i.ibb.co/hRyzLJG/SRMove-Side-By-Side-Example.gif" alt="SRMove-Side-By-Side-Example" width="320">
+<img src="https://github.com/NoiRC256/SRMove/assets/33998067/33ac7870-36e6-4c35-9390-4bbd4c5b6832" alt="SRMove-Side-By-Side-Example" width="320">
 
 In Genshin Impact, even though character IK is disabled while the character is moving, the character is still able to travel smoothly on stairs that have unmodified mesh colliders. This may partially be the result of some slope approximation system, which allows character movement logic to consider *stairs* as *angled ground* for the purpose of aligning movement velocity with ground surface.
 
