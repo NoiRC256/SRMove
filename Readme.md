@@ -31,7 +31,7 @@ In Genshin Impact, even though character IK is disabled while the character is m
 
 ### Environment
 
-Developed and tested in Unity 2022.2.0b12
+Developed and tested in Unity 2022.3.4f1
 
 # Quick Start
 
