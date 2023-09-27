@@ -1,7 +1,7 @@
 using UnityEngine;
-using NekoLib.SRMove.NekoPhysics;
+using NekoLab.SRMove.NekoPhysics;
 
-namespace NekoLib.SRMove
+namespace NekoLab.SRMove
 {
     public static class GroundSensor
     {

@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using NekoLib.SRMove.NekoPhysics;
-using NekoLib.SRMove.NekoMath;
 
-namespace NekoLib.SRMove
+namespace NekoLab.SRMove
 {
     [RequireComponent(typeof(Rigidbody))]
     [RequireComponent(typeof(CapsuleCollider))]
@@ -34,12 +32,13 @@ namespace NekoLib.SRMove
         [SerializeField][Min(0f)] private float _maxFallSpeed = 20f;
 
         [Header("Ground Detection")]
-        [SerializeField] private LayerMask _groundMask;
-        [Tooltip("Snap to ground when grounded. Useful for cases like moving down stairs.")]
+        [Tooltip("Detect ground in these layers.")]
+        [SerializeField] private LayerMask _groundMask = 1 << 0;
+        [Tooltip("If true, snaps to ground when grounded. Useful for staying on the ground when moving down slopes.")]
         [SerializeField] private bool _shouldSnapToGround = true;
-        [Tooltip("Surfaces with normal below this angle is considered as ground.")]
+        [Tooltip("Surfaces with plane normal angle below this angle is considered as ground.")]
         [SerializeField][Range(0f, 90f)] private float _groundAngleLimit = 90f;
-        [Tooltip("Surfaces with normal below this angle is considered as flat ground.")]
+        [Tooltip("Surfaces with plane normal angle below this angle is considered as flat ground.")]
         [SerializeField][Range(0f, 90f)] private float _flatGroundAngleLimit = 60f;
         [SerializeField][Min(0f)] private float _groundProbeDistance = 10f;
         [SerializeField][Min(0f)] private float _groundProbeThickness = 0.1f;
@@ -52,17 +51,17 @@ namespace NekoLib.SRMove
 
         [Header("Step Handling")]
         [SerializeField][Min(0f)] private float _stepHeight = 0.3f;
-        [SerializeField][Min(1f)] private float _stepUpSmooth = 10f;
-        [SerializeField][Min(1f)] private float _stepDownSmooth = 10f;
+        [SerializeField][Min(1f)] private float _stepUpSmooth = 15f;
+        [SerializeField][Min(1f)] private float _stepDownSmooth = 15f;
         [SerializeField] private bool _useRealGroundNormal = true;
         [Tooltip("If true, performs predictive ground probing to adjust floating step velocity more responsively.")]
         [SerializeField] private bool _predictGroundWhenFalling = true;
 
         [Header("Slope Detection")]
         [SerializeField] private bool _useSlopeProbing = true;
-        [SerializeField][Min(0f)] private float _slopeProbeFrontOffset = 1f;
+        [SerializeField][Min(0f)] private float _slopeProbeFrontOffset = 0.5f;
         [SerializeField][Range(1, 5)] private int _slopeProbeFrontCount = 2;
-        [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 1f;
+        [SerializeField][Min(0f)] private float _slopeProbeBackOffset = 0.5f;
         [SerializeField][Range(1, 5)] private int _slopeProbeBackCount = 2;
 
 #if UNITY_EDITOR
@@ -101,20 +100,21 @@ namespace NekoLib.SRMove
 
         #region Velocity Fields
 
+        // The target active velocity to aim for.
         private Vector3 _activeVelocityTarget = Vector3.zero;
-        // Active velocity, driven by input and affected by velocity physics.
+        // The current active velocity, affected by velocity physics.
         private Vector3 _activeVelocity = Vector3.zero;
         // Previous nonzero active velocity direction.
         private Vector3 _lastNonZeroActiveDirection = Vector3.zero;
 
-        // Gravity speed;
-        private float _gravitySpeed;
+        // Accumulated gravity speed;
+        private float _gravitySpeed = 0f;
 
-        // Velocity contribution from connected body.
+        // Velocity contribution from connected body (i.e. floor).
         private Vector3 _connectedBodyVel = Vector3.zero;
         private Vector3 _connectedBodyPosDelta = Vector3.zero;
 
-        // Ground step height velocity;
+        // Ground step height adjustment velocity;
         private Vector3 _groundStepVel = Vector3.zero;
 
         #endregion
@@ -150,8 +150,7 @@ namespace NekoLib.SRMove
 
         #region Properties
 
-        /* Data */
-
+        // Data.
         public bool IsOnGround { get; set; }
         public bool IsOnFlatGround { get; set; }
         public Vector3 GroundNormal { get; set; }
@@ -162,14 +161,12 @@ namespace NekoLib.SRMove
         public float Speed => Rigidbody.velocity.magnitude;
         public Vector3 Direction => Rigidbody.velocity.normalized;
 
-        /* Components */
-
+        // Components.
         public Rigidbody Rigidbody { get; private set; }
         public Collider Collider { get; private set; }
         public Vector3 ColliderCenter { get => _capsuleCollider.bounds.center; }
 
-        /* Configuration */
-
+        // Configuration.
         /// <summary>
         /// Capsule collider height.
         /// </summary>
@@ -246,7 +243,7 @@ namespace NekoLib.SRMove
 
         private void OnValidate()
         {
-            InitComponents();
+            ConfigureComponents();
             UpdateColliderDimensions();
             _minFlatGroundAngleDot = Mathf.Cos(_flatGroundAngleLimit * Mathf.Deg2Rad);
         }
@@ -291,25 +288,7 @@ namespace NekoLib.SRMove
 
         #endregion
 
-        #region Initialization
-
-        private void InitComponents()
-        {
-            TryGetComponent(out Rigidbody rb);
-            Rigidbody = rb;
-            rb.useGravity = false;
-            rb.interpolation = RigidbodyInterpolation.Interpolate;
-            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            rb.freezeRotation = true;
-
-            TryGetComponent(out CapsuleCollider capsuleCollider);
-            Collider = capsuleCollider;
-            _capsuleCollider = (CapsuleCollider)Collider;
-        }
-
-        #endregion
-
-        #region Movement Methods
+        #region Movement Execution Methods
 
         // Internal method for moving. Sets rigidbody velocity.
         private void InternalMove(Vector3 velocity)
@@ -384,7 +363,7 @@ namespace NekoLib.SRMove
 
         #endregion
 
-        #region Movement Processing
+        #region Movement Computation Methods
 
         private void UpdateMovement(float deltaTime)
         {
@@ -499,6 +478,31 @@ namespace NekoLib.SRMove
             return slopeNormal;
         }
 
+        /// <summary>
+        /// Calculate the adjustment floating velocity needed to maintain desired ground step height.
+        /// </summary>
+        /// <param name="groundDistance"></param>
+        /// <param name="deltaTime"></param>
+        /// <returns></returns>
+        private Vector3 CalculateGroundStepVelocity(float groundDistance, float deltaTime,
+            float offsetY = 0f, bool noSmoothing = false)
+        {
+            Vector3 vel = _groundStepVel;
+            float requiredDelta = (_capsuleHalfHeight + _stepHeight + offsetY) - groundDistance;
+            bool shouldGoUp = requiredDelta > 0f;
+            bool shouldGoDown = requiredDelta < 0f;
+            if (_hasGroundStateChanged || _isTouchingCeiling || noSmoothing)
+            {
+                vel = Vector3.up * (requiredDelta / deltaTime);
+            }
+            else
+            {
+                float stepSmooth = shouldGoUp ? _stepUpSmooth : _stepDownSmooth;
+                vel = Vector3.up * (requiredDelta / (deltaTime * stepSmooth));
+            }
+            return vel;
+        }
+
         #endregion
 
         #region Ground Detection
@@ -584,9 +588,11 @@ namespace NekoLib.SRMove
 
             return hasContact;
         }
+
         #endregion
 
         #region Ground Probing
+
         /// <summary>
         /// Perform ground probing, and update ground floating adjustment velocity.
         /// </summary>
@@ -668,6 +674,7 @@ namespace NekoLib.SRMove
                 origin: ColliderCenter + offset, layerMask: _groundMask, useRealGroundNormal: useRealGroundNormal);
             return isOnGround;
         }
+
         #endregion
 
         #region Slope Probing
@@ -724,7 +731,6 @@ namespace NekoLib.SRMove
 
             return foundSlope;
         }
-
 
         /// <summary>
         /// Probe slope in the specified direction.
@@ -837,31 +843,6 @@ namespace NekoLib.SRMove
 
         #region Ground State
 
-        /// <summary>
-        /// Calculate the adjustment floating velocity needed to maintain desired ground distance (step height).
-        /// </summary>
-        /// <param name="groundDistance"></param>
-        /// <param name="deltaTime"></param>
-        /// <returns></returns>
-        private Vector3 CalculateGroundStepVelocity(float groundDistance, float deltaTime,
-            float offsetY = 0f, bool noSmoothing = false)
-        {
-            Vector3 vel = _groundStepVel;
-            float requiredDelta = (_capsuleHalfHeight + _stepHeight + offsetY) - groundDistance;
-            bool shouldGoUp = requiredDelta > 0f;
-            bool shouldGoDown = requiredDelta < 0f;
-            if (_hasGroundStateChanged || _isTouchingCeiling || noSmoothing)
-            {
-                vel = Vector3.up * (requiredDelta / deltaTime);
-            }
-            else
-            {
-                float stepSmooth = shouldGoUp ? _stepUpSmooth : _stepDownSmooth;
-                vel = Vector3.up * (requiredDelta / (deltaTime * stepSmooth));
-            }
-            return vel;
-        }
-
         private void UpdateGroundState(bool isOnGround)
         {
             // Gained ground contact.
@@ -899,6 +880,20 @@ namespace NekoLib.SRMove
 
         #region Helpers
 
+        private void ConfigureComponents()
+        {
+            TryGetComponent(out Rigidbody rb);
+            Rigidbody = rb;
+            rb.useGravity = false;
+            rb.interpolation = RigidbodyInterpolation.Interpolate;
+            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            rb.freezeRotation = true;
+
+            TryGetComponent(out CapsuleCollider capsuleCollider);
+            Collider = capsuleCollider;
+            _capsuleCollider = (CapsuleCollider)Collider;
+        }
+
         /// <summary>
         /// Align velocity to a plane defined by the specified plane normal.
         /// </summary>
@@ -926,7 +921,7 @@ namespace NekoLib.SRMove
             _capsuleCollider.center = center;
             _capsuleCollider.height = _height - _stepHeight;
             _capsuleHalfHeight = _capsuleCollider.height / 2f;
-            LimitRadius();
+            LimitColliderRadius();
             UpdateGroundCheckDimensions();
         }
 
@@ -934,7 +929,7 @@ namespace NekoLib.SRMove
         {
             float radius = _thickness / 2f;
             _capsuleCollider.radius = radius;
-            LimitRadius();
+            LimitColliderRadius();
         }
 
         protected void UpdateGroundCheckDimensions()
@@ -950,7 +945,7 @@ namespace NekoLib.SRMove
         /// <summary>
         /// Restrict collider minimum thickness to collider height.
         /// </summary>
-        private void LimitRadius()
+        private void LimitColliderRadius()
         {
             if (_capsuleCollider.radius * 2f > _capsuleCollider.height) _capsuleCollider.radius = _capsuleCollider.height / 2f;
         }

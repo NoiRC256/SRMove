@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace NekoLib.SRMove
+namespace NekoLab.SRMove
 {
     public interface ICharacterMover
     {
