@@ -39,14 +39,14 @@ Developed and tested in Unity 2022.2.0b12
 
 - Add a `CharacterMover` component to the gameobject you want to move.
 
-- In your own movement controller, use `NekoLib.SRMove`.
+- In your own movement controller, add a using directive for `NekoLab.SRMove`.
 
 - Implement your control logic. Reference a `CharacterMover` instance to handle the movement.
 
 A simple example:
 ```csharp
 using UnityEngine;
-using NekoLib.SRMove;
+using NekoLab.SRMove;
 
 // Example third-person movement controller.
 public class MyMovementController : MonoBehaviour
