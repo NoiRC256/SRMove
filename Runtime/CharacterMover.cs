@@ -158,9 +158,9 @@ namespace NekoLib.SRMove
         public Vector3 GroundPoint { get; set; }
         public Collider GroundCollider { get; set; }
         public Vector3 SlopeNormal { get; set; }
-        public Vector3 Velocity { get => Rigidbody.velocity; }
-        public float Speed => Rigidbody.velocity.magnitude;
-        public Vector3 Direction => Rigidbody.velocity.normalized;
+        public Vector3 Velocity { get => Rigidbody.linearVelocity; }
+        public float Speed => Rigidbody.linearVelocity.magnitude;
+        public Vector3 Direction => Rigidbody.linearVelocity.normalized;
 
         /* Components */
 
@@ -314,8 +314,8 @@ namespace NekoLib.SRMove
         // Internal method for moving. Sets rigidbody velocity.
         private void InternalMove(Vector3 velocity)
         {
-            if (ShouldSnapToGround) Rigidbody.velocity = velocity + _groundStepVel;
-            else Rigidbody.velocity = velocity;
+            if (ShouldSnapToGround) Rigidbody.linearVelocity = velocity + _groundStepVel;
+            else Rigidbody.linearVelocity = velocity;
         }
 
         /// <summary>
