@@ -14,8 +14,8 @@ namespace NekoLib.SRMove
 
         #region Events
 
-        event Action GainedGroundContact;
-        event Action LostGroundContact;
+        event Action GroundContactGained;
+        event Action GroundContactLost;
 
         #endregion
 
