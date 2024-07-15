@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace NekoLib.SRMove
 {
-    public static class GroundSensor
+    public static class GroundSensorUtil
     {
         /// <summary>
         /// Probe for ground downwards from origin.

@@ -65,11 +65,11 @@ namespace NekoLib.SRMove
         // Points with ground normal dot larger than this value is considered as ground.
         private float _minGroundAngleDot;
 
+        private CollisionStore _collisionStore;
         private GroundProbeInfo _groundProbeInfo;
-        private float _speedInput;
-        private Vector3 _directionInput;
-        private Vector3 _velocityInput;
+        private Vector3 _slopeNormal;
         private Vector3 _velocityHover;
+        private Vector3 _velocityInput;
 
         private Vector3 _lastNonZeroDirection;
 
@@ -93,16 +93,19 @@ namespace NekoLib.SRMove
 
         #region API
 
-        public void Move(float speed, Vector3 direction)
+        public void Move(Vector3 velocity)
         {
-            _speedInput = speed;
-            _directionInput = direction;
-            _velocityInput = speed * direction;
+            _velocityInput = velocity;
         }
 
         #endregion
 
         #region MonoBehaviour
+
+        private void OnCollisionStay(Collision collision)
+        {
+            _collisionStore.Remove(collision);
+        }
 
         private void OnValidate()
         {
@@ -154,7 +157,7 @@ namespace NekoLib.SRMove
 
         private void UpdateCollisionCheck()
         {
-            IsOnGround = GroundSensor.Probe(out _groundProbeInfo,
+            IsOnGround = GroundSensorUtil.Probe(out _groundProbeInfo,
                 GroundProbeOrigin, GroundProbeDistance, _groundProbeThickness,
                 _groundLayerMask, GroundDistanceThreshold,
                 _groundProbeFindRealNormal,
@@ -165,24 +168,19 @@ namespace NekoLib.SRMove
         {
             if (_velocityInput.magnitude > 0f) _lastNonZeroDirection = _velocityInput.normalized;
 
-            // Calculate hover velocity used to maintain step height.
             if (IsOnGround)
             {
+                // Calculate hover velocity used to maintain step height.
                 _velocityHover = CalcHoverVelocity(_groundProbeInfo.Distance, Time.deltaTime);
-            }
-            else _velocityHover = Vector3.zero;
 
-            // Approximate the slope to move along.
-            Vector3 slopeNormal = Vector3.up;
-            if (IsOnGround)
-            {
-                slopeNormal = GroundSensor.ApproximateSlope(in _groundProbeInfo,
-                    GroundProbeOrigin, GroundDistanceThreshold, _groundLayerMask,
-                    _lastNonZeroDirection, 1f, 1, _debugSlopeApproximation);
+                // Approximate the slope to move along.
+                _slopeNormal = GroundSensorUtil.ApproximateSlope(in _groundProbeInfo,
+                  GroundProbeOrigin, GroundDistanceThreshold, _groundLayerMask,
+                  _lastNonZeroDirection, 1f, 1, _debugSlopeApproximation);
             }
 
             // Assemble the velocity to apply.
-            Vector3 velocityMove = AlignVelocityToPlane(_velocityInput, slopeNormal);
+            Vector3 velocityMove = AlignVelocityToPlane(_velocityInput, _slopeNormal);
             Vector3 velocityToApply = _velocityHover + velocityMove;
 
             ApplyVelocity(velocityToApply);
@@ -190,6 +188,9 @@ namespace NekoLib.SRMove
 
         private void UpdateCleanup()
         {
+            _collisionStore.Clear();
+            _slopeNormal = Vector3.up;
+            _velocityHover = Vector3.zero;
             _velocityInput = Vector3.zero;
         }
 
@@ -197,7 +198,7 @@ namespace NekoLib.SRMove
 
         private void ApplyVelocity(Vector3 velocity)
         {
-            _rigidbody.AddForce(velocity - _rigidbody.linearVelocity, ForceMode.VelocityChange);
+            _rigidbody.linearVelocity = velocity;
         }
 
         private void OnGroundStateChange(bool newGroundState)
