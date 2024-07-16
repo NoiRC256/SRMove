@@ -17,7 +17,7 @@ namespace NekoLib.SRMove
         /// <returns></returns>
         public static bool Probe(out GroundProbeInfo info,
             Vector3 origin, float distance, float thickness, LayerMask layerMask,
-            float groundDistanceThreshold,
+            float groundDistanceThreshold, float minGroundAngleDot,
             bool findRealNormal = false, bool debug = false)
         {
             info = GroundProbeInfo.Empty;
@@ -34,7 +34,7 @@ namespace NekoLib.SRMove
                 info.Normal = hitInfo.normal;
                 info.Point = hitInfo.point;
                 info.Collider = hitInfo.collider;
-                info.IsOnGround = (info.Distance <= groundDistanceThreshold);
+                info.IsOnGround = (info.Distance <= groundDistanceThreshold) && (info.Normal.y >= minGroundAngleDot);
 
                 // Ground normal from off-centre spherecast may not be real normal.
                 // Fire another raycast towards ground point to find real normal.
@@ -94,6 +94,12 @@ namespace NekoLib.SRMove
             {
                 Vector3 slopeSegment = frontGroundPoint - backGroundPoint;
                 slopeNormal = Vector3.Cross(slopeSegment, Vector3.Cross(Vector3.up, slopeSegment)).normalized;
+#if UNITY_EDITOR
+                if (debug)
+                {
+                    Debug.DrawLine(frontGroundPoint, backGroundPoint, Color.yellow);
+                }
+#endif
             }
 
             return slopeNormal;
@@ -126,8 +132,10 @@ namespace NekoLib.SRMove
 #if UNITY_EDITOR
                 if (debug)
                 {
-                    Vector3 end = proxyOrigin + new Vector3(0f, -groundProbeDistance, 0f);
-                    Debug.DrawLine(proxyOrigin, end, Color.green);
+                    Vector3 endHit = proxyOrigin + new Vector3(0f, -hitInfo.distance, 0f);
+                    Vector3 endTotal = proxyOrigin + new Vector3(0f, -groundProbeDistance, 0f);
+                    Debug.DrawLine(proxyOrigin, endHit, Color.green);
+                    Debug.DrawLine(endHit, endTotal, Color.grey);
                 }
 #endif
                 if (hit)
