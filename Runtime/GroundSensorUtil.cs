@@ -53,7 +53,7 @@ namespace NekoLib.SRMove
 #if UNITY_EDITOR
             if (debug)
             {
-                Vector3 end = origin + new Vector3(0f, distance, 0f);
+                Vector3 end = origin + new Vector3(0f, -distance, 0f);
                 Debug.DrawLine(origin, end, Color.grey);
             }
 #endif
