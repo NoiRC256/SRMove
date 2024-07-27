@@ -5,8 +5,10 @@ namespace NekoLib.SRMove
 {
     [RequireComponent(typeof(Rigidbody))]
     [RequireComponent(typeof(CapsuleCollider))]
-    public class CharacterMover : MonoBehaviour
+    public class AvatarMover : MonoBehaviour
     {
+        #region Variables
+
         #region Inspector Fields
 
         [Header("Collider")]
@@ -103,6 +105,8 @@ namespace NekoLib.SRMove
 
         #endregion
 
+        #endregion
+
         #region API
 
         public void Move(Vector3 velocity)
@@ -178,6 +182,7 @@ namespace NekoLib.SRMove
 
         private void UpdateMovement(float deltaTime)
         {
+            _slopeNormal = Vector3.up;
             if (_velocityInput.magnitude > 0f) _lastNonZeroDirection = _velocityInput.normalized;
 
             if (IsOnGround)
@@ -186,9 +191,12 @@ namespace NekoLib.SRMove
                 _velocityHover = CalcHoverVelocity(_groundProbeInfo.Distance, Time.deltaTime);
 
                 // Approximate the slope to move along.
-                _slopeNormal = GroundSensorUtil.ApproximateSlope(in _groundProbeInfo,
-                  GroundProbeOrigin, GroundDistanceThreshold + 1f, _groundLayerMask,
-                  _lastNonZeroDirection, 1f, 1, _debugSlopeApproximation);
+                if(_velocityInput != Vector3.zero)
+                {
+                    _slopeNormal = GroundSensorUtil.ApproximateSlope(in _groundProbeInfo,
+                        GroundProbeOrigin, GroundDistanceThreshold + 1f, _groundLayerMask,
+                        _lastNonZeroDirection, 1f, 1, _debugSlopeApproximation);
+                }
             }
             else
             {
@@ -206,7 +214,6 @@ namespace NekoLib.SRMove
         private void UpdateCleanup()
         {
             _collisionStore.Clear();
-            _slopeNormal = Vector3.up;
             _velocityHover = Vector3.zero;
             _velocityInput = Vector3.zero;
         }
