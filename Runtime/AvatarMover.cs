@@ -32,6 +32,7 @@ namespace NekoLib.SRMove
         [SerializeField][Min(0f)] private float _stepDownHeight = 0.3f;
         [SerializeField][Min(0f)] private float _stepUpSmooth = 10f;
         [SerializeField][Min(0f)] private float _stepDownSmooth = 10f;
+        [SerializeField][Min(0f)] private float _stepSmoothPowerMoving = 2f;
 
         [Header("Slope")]
         [SerializeField][Range(1f, 90f)] private float _groundAngleLimit = 89f;
@@ -86,6 +87,7 @@ namespace NekoLib.SRMove
         private Vector3 _velocityInput;
 
         private Vector3 _lastNonZeroDirection;
+        private float _hoverHeightPatch;
 
         #endregion
 
@@ -241,17 +243,22 @@ namespace NekoLib.SRMove
             float offsetHeight = 0f, bool smoothing = true)
         {
             Vector3 vel = Vector3.zero;
-            float requiredDeltaVel = (_colliderHalfHeight + _stepUpHeight + offsetHeight) - groundDistance;
+            float hoverHeightPatch = GroundDistanceDesired + offsetHeight - groundDistance;
             if (_isGroundStateChanged || _isTouchingCeiling || !smoothing)
             {
-                vel = Vector3.up * (requiredDeltaVel / deltaTime);
+                vel = Vector3.up * (hoverHeightPatch / deltaTime);
             }
             else
             {
-                bool shouldGoUp = requiredDeltaVel > 0f;
+                bool shouldGoUp = hoverHeightPatch > 0f;
                 float stepSmooth = shouldGoUp ? _stepUpSmooth : _stepDownSmooth;
-                vel = Vector3.up * (requiredDeltaVel / (deltaTime * stepSmooth));
+                if (_velocityInput != Vector3.zero)
+                {
+                    stepSmooth = Mathf.Pow(stepSmooth, _stepSmoothPowerMoving);
+                }
+                vel = Vector3.up * (hoverHeightPatch / (deltaTime * stepSmooth));
             }
+            _hoverHeightPatch = hoverHeightPatch;
             return vel;
         }
 
