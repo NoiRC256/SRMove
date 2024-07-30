@@ -7,7 +7,7 @@ namespace NekoLib.SRMove
         /// <summary>
         /// Probe for ground downwards from origin.
         /// </summary>
-        /// <param name="info"></param>
+        /// <param name="groundInfo"></param>
         /// <param name="origin"></param>
         /// <param name="distance"></param>
         /// <param name="thickness"></param>
@@ -15,12 +15,12 @@ namespace NekoLib.SRMove
         /// <param name="groundDistanceThreshold"></param>
         /// <param name="findRealNormal"></param>
         /// <returns></returns>
-        public static bool Probe(out GroundProbeInfo info,
+        public static GroundInfo Probe(
             Vector3 origin, float distance, float thickness, LayerMask layerMask,
-            float groundDistanceThreshold, float minGroundAngleDot,
+            float groundDistanceThreshold,
             bool findRealNormal = false, bool debug = false)
         {
-            info = GroundProbeInfo.Empty;
+            GroundInfo groundInfo = GroundInfo.Empty;
             bool hit = false;
             RaycastHit hitInfo;
             if (thickness <= 0f) hit = Physics.Raycast(origin, Vector3.down, out hitInfo,
@@ -30,22 +30,21 @@ namespace NekoLib.SRMove
 
             if (hit)
             {
-                info.Distance = origin.y - hitInfo.point.y;
-                info.Normal = hitInfo.normal;
-                info.Point = hitInfo.point;
-                info.Collider = hitInfo.collider;
-                info.IsOnGround = (info.Distance <= groundDistanceThreshold) && (info.Normal.y >= minGroundAngleDot);
+                groundInfo.Distance = origin.y - hitInfo.point.y;
+                groundInfo.Point = hitInfo.point;
+                groundInfo.Normal = hitInfo.normal;
+                groundInfo.IsOnGround = (groundInfo.Distance <= groundDistanceThreshold) && (groundInfo.Normal.y > 0);
 
                 // Ground normal from off-centre spherecast may not be real normal.
                 // Fire another raycast towards ground point to find real normal.
-                if (findRealNormal && info.IsOnGround && thickness > 0f)
+                if (findRealNormal && groundInfo.IsOnGround && thickness > 0f)
                 {
                     Vector3 tmpOrigin = hitInfo.point;
                     tmpOrigin.y += 0.01f;
                     if (hitInfo.collider.Raycast(new Ray(tmpOrigin, Vector3.down),
                         out RaycastHit realNormalHitInfo, maxDistance: 0.1f))
                     {
-                        info.Normal = realNormalHitInfo.normal;
+                        groundInfo.Normal = realNormalHitInfo.normal;
                     }
                 }
             }
@@ -58,36 +57,36 @@ namespace NekoLib.SRMove
             }
 #endif
 
-            return info.IsOnGround;
+            return groundInfo;
         }
 
         /// <summary>
         /// Approximate the ground slope normal by sampling ground points ahead and behind.
         /// </summary>
-        /// <param name="groundProbeInfo"></param>
+        /// <param name="groundInfo"></param>
         /// <param name="origin"></param>
-        /// <param name="groundProbeDistance"></param>
+        /// <param name="maxGroundDistance"></param>
         /// <param name="layerMask"></param>
         /// <param name="forward"></param>
         /// <param name="range"></param>
         /// <param name="iters"></param>
         /// <returns></returns>
-        public static Vector3 ApproximateSlope(in GroundProbeInfo groundProbeInfo, Vector3 origin,
-            float groundProbeDistance, LayerMask layerMask,
+        public static Vector3 ApproximateSlope(in GroundInfo groundInfo, Vector3 origin,
+            float maxGroundDistance, float maxHeightDiff, LayerMask layerMask,
             Vector3 forward, float range, int iters = 1, bool debug = false)
         {
-            Vector3 slopeNormal = groundProbeInfo.Normal;
+            Vector3 slopeNormal = groundInfo.Normal;
             float rangeStep = range / (float)iters;
 
             // Find front proxy ground point.
-            Vector3 frontGroundPoint = groundProbeInfo.Point;
-            bool frontProxyHit = SampleGroundPoint(ref frontGroundPoint,
-                origin, groundProbeDistance, layerMask, forward, rangeStep, iters, debug);
+            Vector3 frontGroundPoint = groundInfo.Point;
+            bool frontProxyHit = SampleFarthestGroundPoint(ref frontGroundPoint,
+                origin, maxGroundDistance, maxHeightDiff, layerMask, forward, rangeStep, iters, debug);
 
             // Find back proxy ground point.
-            Vector3 backGroundPoint = groundProbeInfo.Point;
-            bool backProxyHit = SampleGroundPoint(ref backGroundPoint,
-                origin, groundProbeDistance, layerMask, -forward, rangeStep, iters, debug);
+            Vector3 backGroundPoint = groundInfo.Point;
+            bool backProxyHit = SampleFarthestGroundPoint(ref backGroundPoint,
+                origin, maxGroundDistance, maxHeightDiff, layerMask, -forward, rangeStep, iters, debug);
 
             // Calculate slope normal from 2 proxy ground points.
             if (frontProxyHit || backProxyHit)
@@ -120,10 +119,12 @@ namespace NekoLib.SRMove
         /// <param name="step">Distance to look ahead in each iteration.</param>
         /// <param name="iters">Number of iterations to run for.</param>
         /// <returns></returns>
-        private static bool SampleGroundPoint(ref Vector3 groundPoint,
-            Vector3 origin, float groundProbeDistance, LayerMask layerMask,
+        private static bool SampleFarthestGroundPoint(ref Vector3 groundPoint,
+            Vector3 origin, float groundProbeDistance, float maxHeightDiff, LayerMask layerMask,
             Vector3 direction, float step, int iters, bool debug = false)
         {
+            float prevYPos = groundPoint.y;
+            bool proxyHit = false;
             for (int i = 0; i < iters; i++)
             {
                 Vector3 proxyOrigin = origin + (step * ((float)i + 1f) * direction);
@@ -140,11 +141,18 @@ namespace NekoLib.SRMove
 #endif
                 if (hit)
                 {
+                    proxyHit = true;
+                    float heightDiff = Mathf.Abs(hitInfo.point.y - prevYPos);
+                    if (heightDiff > maxHeightDiff)
+                    {
+                        return proxyHit;
+                    }
                     groundPoint = hitInfo.point;
+                    prevYPos = hitInfo.point.y;
                 }
-                else return false;
+                else return proxyHit;
             }
-            return true;
+            return proxyHit;
         }
     }
 }
