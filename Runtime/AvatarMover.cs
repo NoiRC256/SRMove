@@ -103,6 +103,7 @@ namespace NekoLib.SRMove
         private CollisionInfo _collisionInfo;
         private GroundInfo _groundInfo;
         private Vector3 _slopeNormal;
+        private Vector3 _velocityGroundRb;
         private Vector3 _velocityGravity;
         private Vector3 _velocityHover;
         private Vector3 _velocityInput;
