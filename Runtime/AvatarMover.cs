@@ -32,10 +32,11 @@ namespace NekoLib.SRMove
         [SerializeField] private bool _groundProbeFindRealNormal = false;
 
         [Header("Step")]
+        [SerializeField][Min(0f)] private float _stepSmoothDelay = 0.05f;
         [SerializeField][Min(0f)] private float _stepUpHeight = 0.3f;
         [SerializeField][Min(0f)] private float _stepDownHeight = 0.3f;
-        [SerializeField][Min(0f)] private float _stepUpSmooth = 3f;
-        [SerializeField][Min(0f)] private float _stepDownSmooth = 3f;
+        [SerializeField][Min(1f)] private float _stepUpSmooth = 3f;
+        [SerializeField][Min(1f)] private float _stepDownSmooth = 3f;
         [Tooltip("Step up and step down smoothing multipler while moving.")]
         [SerializeField][Min(0f)] private float _stepSmoothMovingMultipler = 1f;
         [Tooltip("Range in front of and behind for ground slope approximation.")]
@@ -110,6 +111,8 @@ namespace NekoLib.SRMove
 
         private Vector3 _lastNonZeroDirection;
         private float _hoverHeightPatch;
+        private float _hoverHeightPatchCounter = 0f;
+        private Vector3 _slopePoint;
 
         #endregion
 
@@ -217,21 +220,24 @@ namespace NekoLib.SRMove
 
         private void UpdateMovement(float deltaTime)
         {
+            if(_hoverHeightPatchCounter > 0f) _hoverHeightPatchCounter -= deltaTime;
             _slopeNormal = Vector3.up;
             if (_velocityInput.magnitude > 0f) _lastNonZeroDirection = _velocityInput.normalized;
 
             if (IsOnGround)
             {
-                // Update hover velocity.
-                _velocityHover = CalcHoverVelocity(_groundInfo.Distance, Time.deltaTime);
-
                 // Approximate the slope to move along.
                 if (_velocityInput != Vector3.zero)
                 {
-                    _slopeNormal = GroundSensorUtil.ApproximateSlope(in _groundInfo,
+                    _slopeNormal = GroundSensorUtil.ApproximateSlope(in _groundInfo, out _slopePoint,
                         GroundProbeOrigin, GroundDistanceThreshold + 1f, _stepUpHeight, _groundLayerMask,
                         _lastNonZeroDirection, _slopeApproxRange, 5, _debugSlopeApproximation);
+                    //_groundInfo.Point = _slopePoint;
+                    //_groundInfo.Distance = GroundProbeOrigin.y - _groundInfo.Point.y;
                 }
+
+                // Update hover velocity.
+                _velocityHover = CalcHoverVelocity(_groundInfo.Distance, Time.deltaTime);
             }
             else
             {
@@ -244,6 +250,12 @@ namespace NekoLib.SRMove
             Vector3 velocityToApply = _velocityGravity + _velocityHover + velocityMove;
 
             ApplyVelocity(velocityToApply);
+        }
+
+        private void OnDrawGizmos()
+        {
+            Gizmos.color = Color.green;
+            Gizmos.DrawSphere(_slopePoint, 0.25f);
         }
 
         private void UpdateCleanup()
@@ -282,21 +294,35 @@ namespace NekoLib.SRMove
         {
             Vector3 vel = Vector3.zero;
             float hoverHeightPatch = GroundDistanceDesired + offsetHeight - groundDistance;
+            bool hoverHeightPatchChanged = Mathf.Abs(hoverHeightPatch - _hoverHeightPatch) > 0.1f * _stepUpHeight;
+            _hoverHeightPatch = hoverHeightPatch;
+            if (hoverHeightPatchChanged) _hoverHeightPatchCounter = _stepSmoothDelay;
             if (_isGroundStateChanged || !smoothing)
             {
                 vel = Vector3.up * (hoverHeightPatch / deltaTime);
             }
             else
             {
+                if(_hoverHeightPatchCounter >= 0f)
+                {
+                    return Vector3.zero;
+                }
                 float stepSmooth = hoverHeightPatch > 0f ? _stepUpSmooth : _stepDownSmooth;
                 if (_velocityInput != Vector3.zero)
                 {
                     stepSmooth = stepSmooth * _stepSmoothMovingMultipler;
                 }
-                vel = Vector3.up * ((hoverHeightPatch * Mathf.Abs(hoverHeightPatch)) / (deltaTime * stepSmooth));
+                float sign = Mathf.Sign(hoverHeightPatch);
+                float hoverHeightDelta = Sigmoid(Mathf.Abs(hoverHeightPatch)) / (stepSmooth * deltaTime);
+
+                vel = Vector3.up * sign * hoverHeightDelta;
             }
-            _hoverHeightPatch = hoverHeightPatch;
             return vel;
+        }
+
+        public static float Sigmoid(float value)
+        {
+            return value;
         }
 
         /// <summary>

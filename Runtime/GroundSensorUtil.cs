@@ -1,3 +1,4 @@
+using UnityEditor;
 using UnityEngine;
 
 namespace NekoLib.SRMove
@@ -71,11 +72,12 @@ namespace NekoLib.SRMove
         /// <param name="range"></param>
         /// <param name="iters"></param>
         /// <returns></returns>
-        public static Vector3 ApproximateSlope(in GroundInfo groundInfo, Vector3 origin,
-            float maxGroundDistance, float maxHeightDiff, LayerMask layerMask,
+        public static Vector3 ApproximateSlope(in GroundInfo groundInfo, out Vector3 slopePoint,
+            Vector3 origin, float maxGroundDistance, float maxHeightDiff, LayerMask layerMask,
             Vector3 forward, float range, int iters = 1, bool debug = false)
         {
             Vector3 slopeNormal = groundInfo.Normal;
+            slopePoint = groundInfo.Point;
             float rangeStep = range / (float)iters;
 
             // Find front proxy ground point.
@@ -99,9 +101,34 @@ namespace NekoLib.SRMove
                     Debug.DrawLine(frontGroundPoint, backGroundPoint, Color.yellow);
                 }
 #endif
+                if(frontProxyHit && backProxyHit)
+                {
+                    Vector3 groundProbeSegment = Vector3.down * maxGroundDistance + new Vector3(0f, -100f, 0f);
+                    bool hasIntersection = GetIntersection(origin, groundProbeSegment, backGroundPoint, slopeSegment, out slopePoint);
+                }
             }
 
             return slopeNormal;
+        }
+
+        public static bool GetIntersection(Vector3 p1, Vector3 v1, Vector3 p2, Vector3 v2, out Vector3 intersection)
+        {
+            intersection = Vector3.zero;
+
+            Vector3 cross_v1v2 = Vector3.Cross(v1, v2);
+            float denominator = cross_v1v2.sqrMagnitude;
+
+            // If denominator is close to zero, lines are parallel or coincident
+            if (denominator < Mathf.Epsilon)
+            {
+                return false;
+            }
+
+            Vector3 p2_p1 = p2 - p1;
+            float t = Vector3.Dot(Vector3.Cross(p2_p1, v2), cross_v1v2) / denominator;
+
+            intersection = p1 + t * v1;
+            return true;
         }
 
         /// <summary>
@@ -141,8 +168,8 @@ namespace NekoLib.SRMove
 #endif
                 if (hit)
                 {
-                    proxyHit = true;
                     float heightDiff = Mathf.Abs(hitInfo.point.y - prevYPos);
+                    proxyHit = true;
                     if (heightDiff > maxHeightDiff)
                     {
                         return proxyHit;
