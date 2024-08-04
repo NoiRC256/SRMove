@@ -35,6 +35,10 @@ namespace NekoLib.SRMove
                 groundInfo.Point = hitInfo.point;
                 groundInfo.Normal = hitInfo.normal;
                 groundInfo.IsOnGround = (groundInfo.Distance <= groundDistanceThreshold) && (groundInfo.Normal.y > 0);
+                if (groundInfo.IsOnGround)
+                {
+                    groundInfo.Collider = hitInfo.collider;
+                }
 
                 // Ground normal from off-centre spherecast may not be real normal.
                 // Fire another raycast towards ground point to find real normal.

@@ -65,11 +65,21 @@ namespace NekoLib.SRMove
                 _isOnGround = value;
             }
         }
-        public bool IsColliding => _collisionInfo.IsTouchingGround || _collisionInfo.IsTouchingWall || _collisionInfo.IsTouchingCeiling;
+        public GroundInfo GroundInfo {
+            get => _groundInfo;
+            private set {
+                _groundInfo = value;
+                if (_groundInfo.Collider != null)
+                {
+                    _groundInfo.Collider.TryGetComponent<Rigidbody>(out _groundRb);
+                }
+            }
+        }
+        private float ColliderHalfHeight => _collider.height / 2f;
         /// <summary>
         /// Desired ground distance from the capsule collider center.
         /// </summary>
-        private float GroundDistanceDesired => _colliderHalfHeight + _stepUpHeight;
+        private float GroundDistanceDesired => ColliderHalfHeight + _stepUpHeight;
         /// <summary>
         /// Ground probe hits witin this distance from the capsule collider center is considered to be ground.
         /// </summary>
@@ -97,22 +107,21 @@ namespace NekoLib.SRMove
 
         [SerializeField][HideInInspector] private Rigidbody _rigidbody;
         [SerializeField][HideInInspector] private CapsuleCollider _collider;
-        private float _colliderHalfHeight;
 
         private CollisionStore _collisionStore = new CollisionStore();
         private List<Collision> _collisions = new List<Collision>();
-        private CollisionInfo _collisionInfo;
-        private GroundInfo _groundInfo;
-        private Vector3 _slopeNormal;
-        private Vector3 _velocityGroundRb;
-        private Vector3 _velocityGravity;
-        private Vector3 _velocityHover;
-        private Vector3 _velocityInput;
+        private GroundInfo _groundInfo = GroundInfo.Empty;
+        private Rigidbody _groundRb = null;
+        private Vector3 _slopePoint = Vector3.zero;
+        private Vector3 _slopeNormal = Vector3.up;
+        private Vector3 _velocityGroundRb = Vector3.zero;
+        private Vector3 _velocityGravity = Vector3.zero;
+        private Vector3 _velocityHover = Vector3.zero;
+        private Vector3 _velocityInput = Vector3.zero;
 
-        private Vector3 _lastNonZeroDirection;
-        private float _hoverHeightPatch;
-        private float _hoverHeightPatchCounter = 0f;
-        private Vector3 _slopePoint;
+        private Vector3 _lastNonZeroDirection = Vector3.forward;
+        private float _stepHeightHoverPatch = 0f;
+        private float _stepSmoothDelayCounter = 0f;
 
         #endregion
 
@@ -149,9 +158,9 @@ namespace NekoLib.SRMove
             _collisions.Add(collision);
         }
 
-        private void OnCollisionStay(Collision collision)
+        private void OnCollisionExit(Collision collision)
         {
-            _collisions.Add(collision);
+            _collisions.Remove(collision);
         }
 
         private void OnValidate()
@@ -164,8 +173,6 @@ namespace NekoLib.SRMove
         {
             OnValidate();
             _lastNonZeroDirection = _collider.transform.forward;
-            _groundInfo = GroundInfo.Empty;
-            _collisionInfo = CollisionInfo.Empty;
         }
 
         private void FixedUpdate()
@@ -173,6 +180,12 @@ namespace NekoLib.SRMove
             UpdateCollisionCheck();
             UpdateMovement(Time.deltaTime);
             UpdateCleanup();
+        }
+
+        private void OnDrawGizmos()
+        {
+            Gizmos.color = Color.green;
+            Gizmos.DrawSphere(_slopePoint, 0.25f);
         }
 
         #endregion
@@ -196,7 +209,6 @@ namespace NekoLib.SRMove
         {
             ColliderUtil.SetHeight(_collider, _height, _stepUpHeight);
             ColliderUtil.SetThickness(_collider, _thickness);
-            _colliderHalfHeight = _collider.height / 2f;
         }
 
         #endregion
@@ -205,57 +217,61 @@ namespace NekoLib.SRMove
 
         private void UpdateCollisionCheck()
         {
-            _collisionInfo = CheckDirectCollisions();
-            if (_collisionInfo.IsTouchingGround)
-            {
-                IsOnGround = _collisionInfo.IsTouchingGround;
-                _groundInfo = new GroundInfo(true, 0f, _collisionInfo.GroundPoint, _collisionInfo.GroundNormal);
-                return;
-            }
-            _groundInfo = GroundSensorUtil.Probe(GroundProbeOrigin, GroundProbeDistance, _groundProbeThickness,
+            GroundInfo groundInfo = GroundInfo.Empty;
+            groundInfo = CheckDirectCollisions(out bool isTouchingWall, out bool isTouchingCeiling);
+            groundInfo = GroundSensorUtil.Probe(GroundProbeOrigin, GroundProbeDistance, _groundProbeThickness,
                 _groundLayerMask, GroundDistanceThreshold,
                 _groundProbeFindRealNormal, _debugGroundDetection);
-            IsOnGround = _groundInfo.IsOnGround;
+
+            if (Mathf.Abs(groundInfo.Distance - GroundInfo.Distance) > (0.1f * (_stepUpHeight + _stepDownHeight)))
+            {
+                _stepSmoothDelayCounter = _stepSmoothDelay;
+            }
+ 
+            GroundInfo = groundInfo;
+            IsOnGround = groundInfo.IsOnGround;
         }
 
         private void UpdateMovement(float deltaTime)
         {
-            if(_hoverHeightPatchCounter > 0f) _hoverHeightPatchCounter -= deltaTime;
-            _slopeNormal = Vector3.up;
+            if (_stepSmoothDelayCounter > 0f) _stepSmoothDelayCounter -= deltaTime;
             if (_velocityInput.magnitude > 0f) _lastNonZeroDirection = _velocityInput.normalized;
 
             if (IsOnGround)
             {
+                if (_groundRb != null)
+                {
+                    _velocityGroundRb = _groundRb.linearVelocity;
+                }
+                else
+                {
+                    _velocityGroundRb = Vector3.zero;
+                }
+
                 // Approximate the slope to move along.
                 if (_velocityInput != Vector3.zero)
                 {
                     _slopeNormal = GroundSensorUtil.ApproximateSlope(in _groundInfo, out _slopePoint,
                         GroundProbeOrigin, GroundDistanceThreshold + 1f, _stepUpHeight, _groundLayerMask,
                         _lastNonZeroDirection, _slopeApproxRange, 5, _debugSlopeApproximation);
-                    //_groundInfo.Point = _slopePoint;
-                    //_groundInfo.Distance = GroundProbeOrigin.y - _groundInfo.Point.y;
                 }
 
                 // Update hover velocity.
-                _velocityHover = CalcHoverVelocity(_groundInfo.Distance, Time.deltaTime);
+                _velocityHover = UpdateStepHoverVelocity(GroundInfo.Distance, Time.deltaTime);
+                _velocityGravity = Vector3.zero;
             }
             else
             {
+                _slopeNormal = Vector3.up;
                 _velocityGravity += _gravityAccel * Time.deltaTime;
                 _velocityGravity = Vector3.ClampMagnitude(_velocityGravity, _gravitySpeedMax);
             }
 
             // Assemble the velocity to apply.
             Vector3 velocityMove = AlignVelocityToPlane(_velocityInput, _slopeNormal);
-            Vector3 velocityToApply = _velocityGravity + _velocityHover + velocityMove;
+            Vector3 velocityToApply = _velocityGroundRb + _velocityGravity + _velocityHover + velocityMove;
 
             ApplyVelocity(velocityToApply);
-        }
-
-        private void OnDrawGizmos()
-        {
-            Gizmos.color = Color.green;
-            Gizmos.DrawSphere(_slopePoint, 0.25f);
         }
 
         private void UpdateCleanup()
@@ -264,7 +280,6 @@ namespace NekoLib.SRMove
             _velocityHover = Vector3.zero;
             _velocityInput = Vector3.zero;
             _isGroundStateChanged = false;
-            _collisions.Clear();
         }
 
         #endregion
@@ -289,21 +304,19 @@ namespace NekoLib.SRMove
         /// Calculate the adjustment hover velocity required to maintain desired ground distance (step height).
         /// </summary>
         ///   
-        private Vector3 CalcHoverVelocity(float groundDistance, float deltaTime,
-            float offsetHeight = 0f, bool smoothing = true)
+        private Vector3 UpdateStepHoverVelocity(float groundDistance, float deltaTime,
+            float groundDistanceOffset = 0f, bool smoothing = true)
         {
             Vector3 vel = Vector3.zero;
-            float hoverHeightPatch = GroundDistanceDesired + offsetHeight - groundDistance;
-            bool hoverHeightPatchChanged = Mathf.Abs(hoverHeightPatch - _hoverHeightPatch) > 0.1f * _stepUpHeight;
-            _hoverHeightPatch = hoverHeightPatch;
-            if (hoverHeightPatchChanged) _hoverHeightPatchCounter = _stepSmoothDelay;
+            float hoverHeightPatch = GroundDistanceDesired + groundDistanceOffset - groundDistance;
+            _stepHeightHoverPatch = hoverHeightPatch;
             if (_isGroundStateChanged || !smoothing)
             {
                 vel = Vector3.up * (hoverHeightPatch / deltaTime);
             }
             else
             {
-                if(_hoverHeightPatchCounter >= 0f)
+                if (_stepSmoothDelayCounter >= 0f)
                 {
                     return Vector3.zero;
                 }
@@ -312,10 +325,9 @@ namespace NekoLib.SRMove
                 {
                     stepSmooth = stepSmooth * _stepSmoothMovingMultipler;
                 }
-                float sign = Mathf.Sign(hoverHeightPatch);
+                float directionSign = Mathf.Sign(hoverHeightPatch);
                 float hoverHeightDelta = Sigmoid(Mathf.Abs(hoverHeightPatch)) / (stepSmooth * deltaTime);
-
-                vel = Vector3.up * sign * hoverHeightDelta;
+                vel = Vector3.up * directionSign * hoverHeightDelta;
             }
             return vel;
         }
@@ -342,9 +354,11 @@ namespace NekoLib.SRMove
 
         #region Direct Collision Check Helpers
 
-        private CollisionInfo CheckDirectCollisions()
+        private GroundInfo CheckDirectCollisions(out bool isTouchingWall, out bool isTouchingCeiling)
         {
-            CollisionInfo collisionInfo = CollisionInfo.Empty;
+            GroundInfo groundInfo = GroundInfo.Empty;
+            isTouchingWall = false;
+            isTouchingCeiling = false;
             Vector3 accGroundNormal = Vector3.up;
             int groundCollisionCount = 0;
             for (int i = 0; i < _collisions.Count; i++)
@@ -354,26 +368,27 @@ namespace NekoLib.SRMove
                 {
                     break;
                 }
+                if (collision.contactCount == 0) continue;
                 ContactPoint contact = collision.GetContact(0);
                 if (contact.normal.y > 0.0001f)
                 {
-                    collisionInfo.IsTouchingGround = true;
+                    groundInfo.IsOnGround = true;
                     groundCollisionCount++;
                 }
                 else if (contact.normal.y < 0.0001f)
                 {
-                    collisionInfo.IsTouchingCeiling = true;
+                    isTouchingCeiling = true;
                 }
                 else
                 {
-                    collisionInfo.IsTouchingWall = true;
+                    isTouchingWall = true;
                 }
             }
             if (groundCollisionCount > 0)
             {
-                collisionInfo.GroundNormal = accGroundNormal / groundCollisionCount;
+                groundInfo.Normal = accGroundNormal / groundCollisionCount;
             }
-            return collisionInfo;
+            return groundInfo;
         }
         #endregion
 
