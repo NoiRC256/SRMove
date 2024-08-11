@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NekoLib.SRMove
+namespace CCLab.SRMove
 {
     public struct GroundInfo
     {

@@ -1,7 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace NekoLib.SRMove
+namespace CCLab.SRMove
 {
     public static class GroundSensorUtil
     {

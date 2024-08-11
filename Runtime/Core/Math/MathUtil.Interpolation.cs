@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NekoLib.SRMove.NekoMath
+namespace CCLab.SRMove.NekoMath
 {
     public static partial class MathUtil
     {

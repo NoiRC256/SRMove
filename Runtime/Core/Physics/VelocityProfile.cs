@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NekoLib.SRMove.NekoPhysics
+namespace CCLab.SRMove.NekoPhysics
 {
 
     [System.Serializable]
