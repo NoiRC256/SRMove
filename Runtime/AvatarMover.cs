@@ -51,6 +51,14 @@ namespace CCLab.SRMove
 
         #region Properties
 
+        public GroundInfo GroundInfo {
+            get => _groundInfo;
+            private set {
+                _groundInfo = value;
+                IsOnGround = value.IsOnGround;
+                GroundCollider = value.Collider;
+            }
+        }
         /// <summary>
         /// Whether the mover is on ground this physics frame.
         /// <para>True if ground probe has detected ground or capsule collider is touching ground.</para>
@@ -60,19 +68,21 @@ namespace CCLab.SRMove
             private set {
                 if (value != _isOnGround)
                 {
-                    OnGroundStateChange(value);
+                    OnIsOnGroundChange(value);
                 }
                 _isOnGround = value;
             }
         }
-        public GroundInfo GroundInfo {
-            get => _groundInfo;
+        public Collider GroundCollider {
+            get => _groundCollider;
             private set {
-                _groundInfo = value;
-                if (_groundInfo.Collider != null)
+                if (value == null) UnparentFromGround();
+                else
                 {
                     _groundInfo.Collider.TryGetComponent<Rigidbody>(out _groundRb);
+                    ParentToGround(value);
                 }
+                _groundCollider = value;
             }
         }
         private float ColliderHalfHeight => _collider.height / 2f;
@@ -111,6 +121,8 @@ namespace CCLab.SRMove
         private CollisionStore _collisionStore = new CollisionStore();
         private List<Collision> _collisions = new List<Collision>();
         private GroundInfo _groundInfo = GroundInfo.Empty;
+        private bool _isOnGround;
+        private Collider _groundCollider = null;
         private Rigidbody _groundRb = null;
         private Vector3 _slopePoint = Vector3.zero;
         private Vector3 _slopeNormal = Vector3.up;
@@ -127,8 +139,7 @@ namespace CCLab.SRMove
 
         #region State Fields
 
-        private bool _isOnGround;
-        private bool _isGroundStateChanged;
+        private bool _isOnGroundChangedThisFrame;
 
         #endregion
 
@@ -217,19 +228,18 @@ namespace CCLab.SRMove
 
         private void UpdateCollisionCheck()
         {
-            GroundInfo groundInfo = GroundInfo.Empty;
-            groundInfo = CheckDirectCollisions(out bool isTouchingWall, out bool isTouchingCeiling);
-            groundInfo = GroundSensorUtil.Probe(GroundProbeOrigin, GroundProbeDistance, _groundProbeThickness,
+            GroundInfo groundInfoNew = GroundInfo.Empty;
+            groundInfoNew = CheckDirectCollisions(out bool isTouchingWall, out bool isTouchingCeiling);
+            groundInfoNew = GroundSensorUtil.Probe(GroundProbeOrigin, GroundProbeDistance, _groundProbeThickness,
                 _groundLayerMask, GroundDistanceThreshold,
                 _groundProbeFindRealNormal, _debugGroundDetection);
 
-            if (Mathf.Abs(groundInfo.Distance - GroundInfo.Distance) > (0.1f * (_stepUpHeight + _stepDownHeight)))
+            if (Mathf.Abs(groundInfoNew.Distance - GroundInfo.Distance) > (0.1f * (_stepUpHeight + _stepDownHeight)))
             {
                 _stepSmoothDelayCounter = _stepSmoothDelay;
             }
- 
-            GroundInfo = groundInfo;
-            IsOnGround = groundInfo.IsOnGround;
+
+            GroundInfo = groundInfoNew;
         }
 
         private void UpdateMovement(float deltaTime)
@@ -279,7 +289,7 @@ namespace CCLab.SRMove
             _collisionStore.Clear();
             _velocityHover = Vector3.zero;
             _velocityInput = Vector3.zero;
-            _isGroundStateChanged = false;
+            _isOnGroundChangedThisFrame = false;
         }
 
         #endregion
@@ -289,11 +299,28 @@ namespace CCLab.SRMove
             _rigidbody.linearVelocity = velocity;
         }
 
-        private void OnGroundStateChange(bool newGroundState)
+        private void OnIsOnGroundChange(bool newGroundState)
         {
-            _isGroundStateChanged = true;
+            _isOnGroundChangedThisFrame = true;
             GroundStateChanged.Invoke(newGroundState);
             _velocityGravity = Vector3.zero;
+        }
+
+        private void ParentToGround(Collider collider)
+        {
+            if (collider.transform.TryGetComponent(out ParentableGround c))
+            {
+                transform.SetParent(c.transform, worldPositionStays: true);
+            }
+            else
+            {
+                UnparentFromGround();
+            }
+        }
+
+        private void UnparentFromGround()
+        {
+            transform.SetParent(null, worldPositionStays: true);
         }
 
         #region Helpers
@@ -310,7 +337,7 @@ namespace CCLab.SRMove
             Vector3 vel = Vector3.zero;
             float hoverHeightPatch = GroundDistanceDesired + groundDistanceOffset - groundDistance;
             _stepHeightHoverPatch = hoverHeightPatch;
-            if (_isGroundStateChanged || !smoothing)
+            if (_isOnGroundChangedThisFrame || !smoothing)
             {
                 vel = Vector3.up * (hoverHeightPatch / deltaTime);
             }
