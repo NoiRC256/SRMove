@@ -17,21 +17,21 @@ namespace CCLab.SRMove
         /// <param name="findRealNormal"></param>
         /// <returns></returns>
         public static GroundInfo Probe(
-            Vector3 origin, float distance, float thickness, LayerMask layerMask,
+            Vector3 origin, Vector3 up, float distance, float thickness, LayerMask layerMask,
             float groundDistanceThreshold,
             bool findRealNormal = false, bool debug = false)
         {
             GroundInfo groundInfo = GroundInfo.Empty;
             bool hit = false;
             RaycastHit hitInfo;
-            if (thickness <= 0f) hit = Physics.Raycast(origin, Vector3.down, out hitInfo,
+            if (thickness <= 0f) hit = Physics.Raycast(origin, -up, out hitInfo,
                     maxDistance: distance, layerMask: layerMask);
-            else hit = Physics.SphereCast(origin, thickness / 2f, Vector3.down, out hitInfo,
+            else hit = Physics.SphereCast(origin, thickness / 2f, -up, out hitInfo,
                     maxDistance: distance, layerMask: layerMask);
 
             if (hit)
             {
-                groundInfo.Distance = origin.y - hitInfo.point.y;
+                groundInfo.Distance = Vector3.Distance(hitInfo.point, origin);
                 groundInfo.Point = hitInfo.point;
                 groundInfo.Normal = hitInfo.normal;
                 groundInfo.IsOnGround = (groundInfo.Distance <= groundDistanceThreshold) && (groundInfo.Normal.y > 0);
@@ -44,9 +44,8 @@ namespace CCLab.SRMove
                 // Fire another raycast towards ground point to find real normal.
                 if (findRealNormal && groundInfo.IsOnGround && thickness > 0f)
                 {
-                    Vector3 tmpOrigin = hitInfo.point;
-                    tmpOrigin.y += 0.01f;
-                    if (hitInfo.collider.Raycast(new Ray(tmpOrigin, Vector3.down),
+                    Vector3 tmpOrigin = hitInfo.point + 0.01f * -up;
+                    if (hitInfo.collider.Raycast(new Ray(tmpOrigin, -up),
                         out RaycastHit realNormalHitInfo, maxDistance: 0.1f))
                     {
                         groundInfo.Normal = realNormalHitInfo.normal;
@@ -77,7 +76,7 @@ namespace CCLab.SRMove
         /// <param name="iters"></param>
         /// <returns></returns>
         public static Vector3 ApproximateSlope(in GroundInfo groundInfo, out Vector3 slopePoint,
-            Vector3 origin, float maxGroundDistance, float maxHeightDiff, LayerMask layerMask,
+            Vector3 origin, Vector3 up, float maxGroundDistance, float maxHeightDiff, LayerMask layerMask,
             Vector3 forward, float range, int iters = 1, bool debug = false)
         {
             Vector3 slopeNormal = groundInfo.Normal;
@@ -87,18 +86,18 @@ namespace CCLab.SRMove
             // Find front proxy ground point.
             Vector3 frontGroundPoint = groundInfo.Point;
             bool frontProxyHit = SampleFarthestGroundPoint(ref frontGroundPoint,
-                origin, maxGroundDistance, maxHeightDiff, layerMask, forward, rangeStep, iters, debug);
+                origin, up, maxGroundDistance, maxHeightDiff, layerMask, forward, rangeStep, iters, debug);
 
             // Find back proxy ground point.
             Vector3 backGroundPoint = groundInfo.Point;
             bool backProxyHit = SampleFarthestGroundPoint(ref backGroundPoint,
-                origin, maxGroundDistance, maxHeightDiff, layerMask, -forward, rangeStep, iters, debug);
+                origin, up, maxGroundDistance, maxHeightDiff, layerMask, -forward, rangeStep, iters, debug);
 
             // Calculate slope normal from 2 proxy ground points.
             if (frontProxyHit || backProxyHit)
             {
                 Vector3 slopeSegment = frontGroundPoint - backGroundPoint;
-                slopeNormal = Vector3.Cross(slopeSegment, Vector3.Cross(Vector3.up, slopeSegment)).normalized;
+                slopeNormal = Vector3.Cross(slopeSegment, Vector3.Cross(up, slopeSegment)).normalized;
 #if UNITY_EDITOR
                 if (debug)
                 {
@@ -107,7 +106,7 @@ namespace CCLab.SRMove
 #endif
                 if(frontProxyHit && backProxyHit)
                 {
-                    Vector3 groundProbeSegment = Vector3.down * maxGroundDistance + new Vector3(0f, -100f, 0f);
+                    Vector3 groundProbeSegment = (maxGroundDistance + 100f) * -up;
                     bool hasIntersection = GetIntersection(origin, groundProbeSegment, backGroundPoint, slopeSegment, out slopePoint);
                 }
             }
@@ -151,35 +150,35 @@ namespace CCLab.SRMove
         /// <param name="iters">Number of iterations to run for.</param>
         /// <returns></returns>
         private static bool SampleFarthestGroundPoint(ref Vector3 groundPoint,
-            Vector3 origin, float groundProbeDistance, float maxHeightDiff, LayerMask layerMask,
+            Vector3 origin, Vector3 up, float groundProbeDistance, float maxHeightDiff, LayerMask layerMask,
             Vector3 direction, float step, int iters, bool debug = false)
         {
-            float prevYPos = groundPoint.y;
+            Vector3 prevGroundPoint = groundPoint;
             bool proxyHit = false;
             for (int i = 0; i < iters; i++)
             {
                 Vector3 proxyOrigin = origin + (step * ((float)i + 1f) * direction);
-                bool hit = Physics.Raycast(proxyOrigin, Vector3.down, out RaycastHit hitInfo,
+                bool hit = Physics.Raycast(proxyOrigin, -up, out RaycastHit hitInfo,
                     maxDistance: groundProbeDistance, layerMask: layerMask);
 #if UNITY_EDITOR
                 if (debug)
                 {
-                    Vector3 endHit = proxyOrigin + new Vector3(0f, -hitInfo.distance, 0f);
-                    Vector3 endTotal = proxyOrigin + new Vector3(0f, -groundProbeDistance, 0f);
+                    Vector3 endHit = proxyOrigin + hitInfo.distance * -up;
+                    Vector3 endTotal = proxyOrigin + groundProbeDistance * -up;
                     Debug.DrawLine(proxyOrigin, endHit, Color.green);
                     Debug.DrawLine(endHit, endTotal, Color.grey);
                 }
 #endif
                 if (hit)
                 {
-                    float heightDiff = Mathf.Abs(hitInfo.point.y - prevYPos);
+                    float heightDiff = Vector3.Distance(hitInfo.point, prevGroundPoint);
                     proxyHit = true;
                     if (heightDiff > maxHeightDiff)
                     {
                         return proxyHit;
                     }
                     groundPoint = hitInfo.point;
-                    prevYPos = hitInfo.point.y;
+                    prevGroundPoint = hitInfo.point;
                 }
                 else return proxyHit;
             }

@@ -107,7 +107,7 @@ namespace CCLab.SRMove
         /// <summary>
         /// Capsule collider center.
         /// </summary>
-        private Vector3 GroundProbeOrigin => _collider.transform.position + new Vector3(0f, GroundDistanceDesired, 0f);
+        private Vector3 GroundProbeOrigin => _collider.transform.position + GroundDistanceDesired * _up;
 
         #endregion
 
@@ -139,6 +139,8 @@ namespace CCLab.SRMove
 
         #region State Fields
 
+        [SerializeField] private Vector3 _up = Vector3.up;
+        private bool IsParentedToGround = false;
         private bool _isOnGroundChangedThisFrame;
 
         #endregion
@@ -193,10 +195,16 @@ namespace CCLab.SRMove
             UpdateCleanup();
         }
 
+        private void Update()
+        {
+            _up = transform.up;
+            Debug.DrawLine(GroundProbeOrigin, GroundProbeOrigin  + GroundProbeDistance * -_up, Color.green);
+        }
+
         private void OnDrawGizmos()
         {
             Gizmos.color = Color.green;
-            Gizmos.DrawSphere(_slopePoint, 0.25f);
+            Gizmos.DrawSphere(_groundInfo.Point, 0.25f);
         }
 
         #endregion
@@ -230,7 +238,7 @@ namespace CCLab.SRMove
         {
             GroundInfo groundInfoNew = GroundInfo.Empty;
             groundInfoNew = CheckDirectCollisions(out bool isTouchingWall, out bool isTouchingCeiling);
-            groundInfoNew = GroundSensorUtil.Probe(GroundProbeOrigin, GroundProbeDistance, _groundProbeThickness,
+            groundInfoNew = GroundSensorUtil.Probe(GroundProbeOrigin, _up, GroundProbeDistance, _groundProbeThickness,
                 _groundLayerMask, GroundDistanceThreshold,
                 _groundProbeFindRealNormal, _debugGroundDetection);
 
@@ -262,7 +270,7 @@ namespace CCLab.SRMove
                 if (_velocityInput != Vector3.zero)
                 {
                     _slopeNormal = GroundSensorUtil.ApproximateSlope(in _groundInfo, out _slopePoint,
-                        GroundProbeOrigin, GroundDistanceThreshold + 1f, _stepUpHeight, _groundLayerMask,
+                        GroundProbeOrigin, _up, GroundDistanceThreshold + 1f, _stepUpHeight, _groundLayerMask,
                         _lastNonZeroDirection, _slopeApproxRange, 5, _debugSlopeApproximation);
                 }
 
@@ -272,7 +280,7 @@ namespace CCLab.SRMove
             }
             else
             {
-                _slopeNormal = Vector3.up;
+                _slopeNormal = _up;
                 _velocityGravity += _gravityAccel * Time.deltaTime;
                 _velocityGravity = Vector3.ClampMagnitude(_velocityGravity, _gravitySpeedMax);
             }
@@ -311,6 +319,8 @@ namespace CCLab.SRMove
             if (collider.transform.TryGetComponent(out ParentableGround c))
             {
                 transform.SetParent(c.transform, worldPositionStays: true);
+                IsParentedToGround = true;
+                _up = transform.up;
             }
             else
             {
@@ -321,6 +331,9 @@ namespace CCLab.SRMove
         private void UnparentFromGround()
         {
             transform.SetParent(null, worldPositionStays: true);
+            transform.up = Vector3.up;
+            _up = Vector3.up;
+            IsParentedToGround = false;
         }
 
         #region Helpers
@@ -339,7 +352,7 @@ namespace CCLab.SRMove
             _stepHeightHoverPatch = hoverHeightPatch;
             if (_isOnGroundChangedThisFrame || !smoothing)
             {
-                vel = Vector3.up * (hoverHeightPatch / deltaTime);
+                vel = _up * (hoverHeightPatch / deltaTime);
             }
             else
             {
@@ -354,7 +367,7 @@ namespace CCLab.SRMove
                 }
                 float directionSign = Mathf.Sign(hoverHeightPatch);
                 float hoverHeightDelta = Sigmoid(Mathf.Abs(hoverHeightPatch)) / (stepSmooth * deltaTime);
-                vel = Vector3.up * directionSign * hoverHeightDelta;
+                vel = _up * directionSign * hoverHeightDelta;
             }
             return vel;
         }
@@ -373,7 +386,7 @@ namespace CCLab.SRMove
         private Vector3 AlignVelocityToPlane(Vector3 velocity, Vector3 normal)
         {
             float speed = velocity.magnitude;
-            Vector3 alignedDirection = Quaternion.FromToRotation(Vector3.up, normal) * (velocity / speed);
+            Vector3 alignedDirection = Quaternion.FromToRotation(_up, normal) * (velocity / speed);
             return speed * alignedDirection.normalized;
         }
 
@@ -386,7 +399,7 @@ namespace CCLab.SRMove
             GroundInfo groundInfo = GroundInfo.Empty;
             isTouchingWall = false;
             isTouchingCeiling = false;
-            Vector3 accGroundNormal = Vector3.up;
+            Vector3 accGroundNormal = _up;
             int groundCollisionCount = 0;
             for (int i = 0; i < _collisions.Count; i++)
             {
