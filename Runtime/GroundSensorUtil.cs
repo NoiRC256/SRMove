@@ -1,7 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace CCLab.SRMove
+namespace CC.SRMove
 {
     public static class GroundSensorUtil
     {

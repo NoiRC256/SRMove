@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace CCLab.SRMove
+namespace CC.SRMove
 {
     public class CollisionStore
     {

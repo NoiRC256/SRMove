@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace CCLab.SRMove.NekoPhysics
+namespace CC.SRMove.Util
 {
     public static partial class PhysicsUtil
     {

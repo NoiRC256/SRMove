@@ -1,90 +1,90 @@
 using UnityEngine;
 
-namespace CCLab.SRMove.NekoPhysics
+namespace CC.SRMove.Util
 {
     public static partial class PhysicsUtil
     {
-        public static Vector3 CalculatePhysicalVelocity(Vector3 currentVelocity, Vector3 targetVelocity,
+        public static Vector3 UpdatePhysicalVelocity(Vector3 vel, Vector3 velGoal,
                float deltaTime,
                float accel = VelocityProfile.kMaxAccel,
-               float decel = VelocityProfile.kMaxDecel, float brakingDecel = VelocityProfile.kMaxDecel,
-               float friction = VelocityProfile.kMaxFriction, float brakingFriction = VelocityProfile.kMaxFriction)
+               float decel = VelocityProfile.kMaxDecel, float decelBraking = VelocityProfile.kMaxDecel,
+               float friction = VelocityProfile.kMaxFriction, float frictionBraking = VelocityProfile.kMaxFriction)
         {
-            float currentSpeedSqr = currentVelocity.sqrMagnitude;
-            float targetSpeedSqr = targetVelocity.sqrMagnitude;
-            float targetSpeed = targetVelocity.magnitude;
-            Vector3 currentDirection = currentVelocity.normalized;
-            Vector3 targetDirection = targetVelocity.normalized;
+            float speedSqr = vel.sqrMagnitude;
+            float speedGoalSqr = velGoal.sqrMagnitude;
+            float speedGoal = velGoal.magnitude;
+            Vector3 dir = vel.normalized;
+            Vector3 dirGoal = velGoal.normalized;
 
-            if (currentSpeedSqr > targetSpeedSqr * 1.01f)
+            if (speedSqr > speedGoalSqr * 1.01f)
             {
-                if (targetSpeedSqr > 0f && targetDirection != Vector3.zero)
+                if (speedGoalSqr > 0f && dirGoal != Vector3.zero)
                 {
-                    currentVelocity = ApplyDeceleration(currentVelocity, currentDirection, targetSpeed, decel, deltaTime);
+                    vel = ApplyDecel(vel, dir, speedGoal, decel, deltaTime);
                 }
-                else currentVelocity = ApplyVelocityBraking(currentVelocity, currentDirection, brakingFriction, brakingDecel, deltaTime);
+                else vel = ApplyBraking(vel, dir, frictionBraking, decelBraking, deltaTime);
             }
             else
             {
-                float currentSpeed = currentVelocity.magnitude;
-                currentVelocity = ApplyFriction(currentVelocity, currentSpeed, targetDirection, friction, deltaTime);
+                float speed = vel.magnitude;
+                vel = ApplyFriction(vel, speed, dirGoal, friction, deltaTime);
                 ;
-                if (currentSpeed < targetSpeed)
+                if (speed < speedGoal)
                 {
-                    currentVelocity += deltaTime * accel * targetDirection;
-                    currentVelocity = Vector3.ClampMagnitude(currentVelocity, targetSpeed);
+                    vel += deltaTime * accel * dirGoal;
+                    vel = Vector3.ClampMagnitude(vel, speedGoal);
                 }
             }
-            return currentVelocity;
+            return vel;
         }
 
         /// <summary>
         /// Decelerate velocity to zero.
         /// </summary>
-        /// <param name="currentVelocity"></param>
+        /// <param name="vel"></param>
         /// <param name="friction"></param>
         /// <param name="decel"></param>
         /// <param name="deltaTime"></param>
         /// <returns></returns>
-        private static Vector3 ApplyVelocityBraking(Vector3 currentVelocity, Vector3 currentDirection,
+        private static Vector3 ApplyBraking(Vector3 vel, Vector3 dir,
             float friction, float decel, float deltaTime)
         {
             bool isZeroFriction = friction == 0f;
             bool isZeroDecel = decel == 0f;
-            if (isZeroFriction && isZeroDecel) return currentVelocity;
+            if (isZeroFriction && isZeroDecel) return vel;
 
             // Calculate braking deceleration.
-            Vector3 oldVel = currentVelocity;
-            Vector3 decelVec = isZeroDecel ? Vector3.zero : -decel * currentDirection;
+            Vector3 oldVel = vel;
+            Vector3 decelVec = isZeroDecel ? Vector3.zero : -decel * dir;
 
             // Apply friction and deceleration.
-            currentVelocity += (-friction * currentVelocity + decelVec) * deltaTime;
+            vel += (-friction * vel + decelVec) * deltaTime;
 
             // Stop before we start to go backwards.
-            if (Vector3.Dot(currentVelocity, oldVel) <= 0f) return Vector3.zero;
+            if (Vector3.Dot(vel, oldVel) <= 0f) return Vector3.zero;
 
             // Snap to zero.
-            if (currentVelocity.sqrMagnitude <= 0.1f) return Vector3.zero;
+            if (vel.sqrMagnitude <= 0.1f) return Vector3.zero;
 
-            return currentVelocity;
+            return vel;
         }
 
-        private static Vector3 ApplyDeceleration(Vector3 currentVelocity, Vector3 currentDirection,
-            float targetSpeed, float decel, float deltaTime)
+        private static Vector3 ApplyDecel(Vector3 vel, Vector3 dir,
+            float speedGoal, float decel, float deltaTime)
         {
             bool isZeroDecel = decel == 0f;
-            if (isZeroDecel) return currentVelocity;
+            if (isZeroDecel) return vel;
 
-            currentVelocity += deltaTime * -decel * currentDirection;
-            currentVelocity = Vector3.ClampMagnitude(currentVelocity, targetSpeed);
-            return currentVelocity;
+            vel += deltaTime * -decel * dir;
+            vel = Vector3.ClampMagnitude(vel, speedGoal);
+            return vel;
         }
 
-        private static Vector3 ApplyFriction(Vector3 currentVelocity, float currentSpeed,
-            Vector3 desiredDirection, float friction, float deltaTime)
+        private static Vector3 ApplyFriction(Vector3 vel, float speed,
+            Vector3 dirGoal, float friction, float deltaTime)
         {
-            currentVelocity -= (currentVelocity - desiredDirection * currentSpeed) * Mathf.Min(friction * deltaTime, 1f);
-            return currentVelocity;
+            vel -= (vel - dirGoal * speed) * Mathf.Min(friction * deltaTime, 1f);
+            return vel;
         }
     }
 }

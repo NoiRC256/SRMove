@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace CCLab.SRMove
+namespace CC.SRMove
 {
     public class ColliderUtil
     {

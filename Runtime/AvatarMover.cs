@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace CCLab.SRMove
+namespace CC.SRMove
 {
     [RequireComponent(typeof(Rigidbody))]
     [RequireComponent(typeof(CapsuleCollider))]
@@ -56,7 +56,7 @@ namespace CCLab.SRMove
             private set {
                 _groundInfo = value;
                 IsOnGround = value.IsOnGround;
-                GroundCollider = value.Collider;
+                GroundCollider = value.IsOnGround ? value.Collider : null;
             }
         }
         /// <summary>
@@ -68,9 +68,19 @@ namespace CCLab.SRMove
             private set {
                 if (value != _isOnGround)
                 {
-                    OnIsOnGroundChange(value);
+                    HandleIsOnGroundChange(value);
                 }
                 _isOnGround = value;
+            }
+        }
+        public bool IsTouchingCeiling {
+            get => _isTouchingCeiling;
+            private set {
+                if (value == true && value != _isTouchingCeiling)
+                {
+                    HandleIsTouchingCeilingChange(value);
+                }
+                _isTouchingCeiling = value;
             }
         }
         public Collider GroundCollider {
@@ -83,6 +93,26 @@ namespace CCLab.SRMove
                     ParentToGround(value);
                 }
                 _groundCollider = value;
+            }
+        }
+        public Vector3 Up {
+            get => _up;
+            set {
+                if (value != _up)
+                {
+                    HandleUpDirectionChange(value);
+                }
+                _up = value;
+            }
+        }
+        private ParentableGround GroundParent {
+            get => _groundParent;
+            set {
+                if (value != _groundParent)
+                {
+                    HandleGroundParentChange(value);
+                }
+                _groundParent = value;
             }
         }
         private float ColliderHalfHeight => _collider.height / 2f;
@@ -122,8 +152,10 @@ namespace CCLab.SRMove
         private List<Collision> _collisions = new List<Collision>();
         private GroundInfo _groundInfo = GroundInfo.Empty;
         private bool _isOnGround;
+        private bool _isTouchingCeiling = false;
         private Collider _groundCollider = null;
         private Rigidbody _groundRb = null;
+        private ParentableGround _groundParent = null;
         private Vector3 _slopePoint = Vector3.zero;
         private Vector3 _slopeNormal = Vector3.up;
         private Vector3 _velocityGroundRb = Vector3.zero;
@@ -142,6 +174,10 @@ namespace CCLab.SRMove
         [SerializeField] private Vector3 _up = Vector3.up;
         private bool IsParentedToGround = false;
         private bool _isOnGroundChangedThisFrame;
+        private bool _shouldLeaveGround = false;
+        private float _leaveGroundTimeElapsed = 0f;
+        private bool _collisionIsTouchingCeiling = false;
+        private bool _hasDirectCollision = false;
 
         #endregion
 
@@ -149,7 +185,10 @@ namespace CCLab.SRMove
 
         #region Events
 
-        public event Action<bool> GroundStateChanged = delegate { };
+        public event Action<bool> OnIsOnGroundChanged = delegate { };
+        public event Action<bool> OnGroundParentChanged = delegate { };
+        public event Action<Vector3> OnUpDirectionChanged = delegate { };
+        public event Action<bool> OnIsTouchingCeilingChanged = delegate { };
 
         #endregion
 
@@ -162,18 +201,28 @@ namespace CCLab.SRMove
             _velocityInput = velocity;
         }
 
+        public void LeaveGround()
+        {
+            if (_isTouchingCeiling) return;
+            _leaveGroundTimeElapsed = 0f;
+            _shouldLeaveGround = true;
+        }
+
+        public void EndLeaveGround()
+        {
+            _shouldLeaveGround = false;
+            _isOnGroundChangedThisFrame = true;
+        }
+
         #endregion
 
         #region MonoBehaviour
 
-        private void OnCollisionEnter(Collision collision)
+        private void OnCollisionStay(Collision collision)
         {
-            _collisions.Add(collision);
-        }
-
-        private void OnCollisionExit(Collision collision)
-        {
-            _collisions.Remove(collision);
+            _hasDirectCollision = true;
+            CheckDirectCollision(collision, out bool isOnGround, out bool isTouchingCeiling, out bool itTouchingWall);
+            _collisionIsTouchingCeiling = isTouchingCeiling;
         }
 
         private void OnValidate()
@@ -191,6 +240,7 @@ namespace CCLab.SRMove
         private void FixedUpdate()
         {
             UpdateCollisionCheck();
+            _hasDirectCollision = false;
             UpdateMovement(Time.deltaTime);
             UpdateCleanup();
         }
@@ -198,7 +248,7 @@ namespace CCLab.SRMove
         private void Update()
         {
             _up = transform.up;
-            Debug.DrawLine(GroundProbeOrigin, GroundProbeOrigin  + GroundProbeDistance * -_up, Color.green);
+            Debug.DrawLine(GroundProbeOrigin, GroundProbeOrigin + GroundProbeDistance * -_up, Color.green);
         }
 
         private void OnDrawGizmos()
@@ -237,17 +287,31 @@ namespace CCLab.SRMove
         private void UpdateCollisionCheck()
         {
             GroundInfo groundInfoNew = GroundInfo.Empty;
-            groundInfoNew = CheckDirectCollisions(out bool isTouchingWall, out bool isTouchingCeiling);
             groundInfoNew = GroundSensorUtil.Probe(GroundProbeOrigin, _up, GroundProbeDistance, _groundProbeThickness,
                 _groundLayerMask, GroundDistanceThreshold,
                 _groundProbeFindRealNormal, _debugGroundDetection);
 
+            // If ground distance changed drastically, stop step smoothing for a while.
             if (Mathf.Abs(groundInfoNew.Distance - GroundInfo.Distance) > (0.1f * (_stepUpHeight + _stepDownHeight)))
             {
                 _stepSmoothDelayCounter = _stepSmoothDelay;
             }
 
+            if (_shouldLeaveGround)
+            {
+                if (_isTouchingCeiling) EndLeaveGround();
+                else groundInfoNew.IsOnGround = false;
+            }
+
             GroundInfo = groundInfoNew;
+            if (_hasDirectCollision)
+            {
+                IsTouchingCeiling = _collisionIsTouchingCeiling;
+            }
+            else
+            {
+                IsTouchingCeiling = false;
+            }
         }
 
         private void UpdateMovement(float deltaTime)
@@ -307,20 +371,37 @@ namespace CCLab.SRMove
             _rigidbody.linearVelocity = velocity;
         }
 
-        private void OnIsOnGroundChange(bool newGroundState)
+        private void HandleIsOnGroundChange(bool isOnGround)
         {
             _isOnGroundChangedThisFrame = true;
-            GroundStateChanged.Invoke(newGroundState);
+            OnIsOnGroundChanged.Invoke(isOnGround);
             _velocityGravity = Vector3.zero;
+        }
+
+        private void HandleIsTouchingCeilingChange(bool isTouchingCeiling)
+        {
+            OnIsTouchingCeilingChanged.Invoke(isTouchingCeiling);
+        }
+
+        private void HandleUpDirectionChange(Vector3 up)
+        {
+            OnUpDirectionChanged.Invoke(up);
+        }
+
+        private void HandleGroundParentChange(ParentableGround ground)
+        {
+            if (ground == null) OnGroundParentChanged.Invoke(false);
+            else OnGroundParentChanged.Invoke(true);
         }
 
         private void ParentToGround(Collider collider)
         {
-            if (collider.transform.TryGetComponent(out ParentableGround c))
+            if (collider.transform.TryGetComponent(out ParentableGround groundParent))
             {
-                transform.SetParent(c.transform, worldPositionStays: true);
-                IsParentedToGround = true;
+                transform.SetParent(groundParent.transform, worldPositionStays: true);
                 _up = transform.up;
+                IsParentedToGround = true;
+                GroundParent = groundParent;
             }
             else
             {
@@ -330,10 +411,13 @@ namespace CCLab.SRMove
 
         private void UnparentFromGround()
         {
+            Vector3 forward = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
             transform.SetParent(null, worldPositionStays: true);
             transform.up = Vector3.up;
+            transform.forward = forward;
             _up = Vector3.up;
             IsParentedToGround = false;
+            GroundParent = null;
         }
 
         #region Helpers
@@ -394,47 +478,40 @@ namespace CCLab.SRMove
 
         #region Direct Collision Check Helpers
 
-        private GroundInfo CheckDirectCollisions(out bool isTouchingWall, out bool isTouchingCeiling)
+        private bool CheckDirectCollision(Collision collision, out bool isOnGround, out bool isTouchingCeiling, out bool isTouchingWall)
         {
-            GroundInfo groundInfo = GroundInfo.Empty;
-            isTouchingWall = false;
+            isOnGround = false;
             isTouchingCeiling = false;
-            Vector3 accGroundNormal = _up;
-            int groundCollisionCount = 0;
-            for (int i = 0; i < _collisions.Count; i++)
+            isTouchingWall = false;
+            Debug.Log("Check collision: " + collision.collider.gameObject.name);
+            if (!LayerMaskContains(_groundLayerMask, collision.gameObject.layer))
             {
-                Collision collision = _collisions[i];
-                if (!LayerMaskContains(_groundLayerMask, collision.collider.gameObject.layer))
-                {
-                    break;
-                }
-                if (collision.contactCount == 0) continue;
-                ContactPoint contact = collision.GetContact(0);
-                if (contact.normal.y > 0.0001f)
-                {
-                    groundInfo.IsOnGround = true;
-                    groundCollisionCount++;
-                }
-                else if (contact.normal.y < 0.0001f)
-                {
-                    isTouchingCeiling = true;
-                }
-                else
-                {
-                    isTouchingWall = true;
-                }
+                return false;
             }
-            if (groundCollisionCount > 0)
+            //if (collision.contactCount == 0) continue;
+            ContactPoint contact = collision.GetContact(0);
+            if (contact.normal.y > 0.01f)
             {
-                groundInfo.Normal = accGroundNormal / groundCollisionCount;
+                isOnGround = true;
+                Debug.Log("Is touching ground");
             }
-            return groundInfo;
+            else if (contact.normal.y < -0.25f)
+            {
+                isTouchingCeiling = true;
+                Debug.Log("Is touching ceiling");
+            }
+            else
+            {
+                isTouchingWall = true;
+                Debug.Log("Is touching wall");
+            }
+            return true;
         }
         #endregion
 
         private bool LayerMaskContains(LayerMask layerMask, int layer)
         {
-            return ((layerMask & (1 << layer)) != 0);
+            return layerMask == (layerMask | (1 << layer));
         }
 
         #endregion
