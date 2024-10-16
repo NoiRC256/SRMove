@@ -161,6 +161,7 @@ namespace CC.SRMove
         private Vector3 _velocityGroundRb = Vector3.zero;
         private Vector3 _velocityGravity = Vector3.zero;
         private Vector3 _velocityHover = Vector3.zero;
+        private Vector3 _velocityForce = Vector3.zero;
         private Vector3 _velocityInput = Vector3.zero;
 
         private Vector3 _lastNonZeroDirection = Vector3.forward;
@@ -201,6 +202,11 @@ namespace CC.SRMove
             _velocityInput = velocity;
         }
 
+        public void SetForce(Vector3 force)
+        {
+            _velocityForce = force;
+        }
+
         public void LeaveGround()
         {
             if (_isTouchingCeiling) return;
@@ -212,6 +218,7 @@ namespace CC.SRMove
         {
             _shouldLeaveGround = false;
             _isOnGroundChangedThisFrame = true;
+            _velocityGravity = Vector3.zero;
         }
 
         #endregion
@@ -350,8 +357,9 @@ namespace CC.SRMove
             }
 
             // Assemble the velocity to apply.
+            Vector3 velocityGravity = _shouldLeaveGround ? Vector3.zero : _velocityGravity;
             Vector3 velocityMove = AlignVelocityToPlane(_velocityInput, _slopeNormal);
-            Vector3 velocityToApply = _velocityGroundRb + _velocityGravity + _velocityHover + velocityMove;
+            Vector3 velocityToApply = _velocityGroundRb + velocityGravity + _velocityHover + velocityMove + _velocityForce;
 
             ApplyVelocity(velocityToApply);
         }
