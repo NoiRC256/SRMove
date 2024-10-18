@@ -1,9 +1,8 @@
-using UnityEditor;
 using UnityEngine;
 
 namespace CC.SRMove
 {
-    public static class GroundSensorUtil
+    public partial class AvatarMover : MonoBehaviour
     {
         /// <summary>
         /// Probe for ground downwards from origin.
@@ -16,25 +15,26 @@ namespace CC.SRMove
         /// <param name="groundDistanceThreshold"></param>
         /// <param name="findRealNormal"></param>
         /// <returns></returns>
-        public static GroundInfo Probe(
-            Vector3 origin, Vector3 up, float distance, float thickness, LayerMask layerMask,
-            float groundDistanceThreshold,
-            bool findRealNormal = false, bool debug = false)
+        public GroundInfo Probe(bool findRealNormal = false, bool debug = false)
         {
+            Vector3 origin = GroundProbeOrigin;
+            Vector3 up = _up;
+            float distance = GroundProbeDistance;
+            float thickness = _groundProbeThickness;
             GroundInfo groundInfo = GroundInfo.Empty;
             bool hit = false;
             RaycastHit hitInfo;
             if (thickness <= 0f) hit = Physics.Raycast(origin, -up, out hitInfo,
-                    maxDistance: distance, layerMask: layerMask);
+                    maxDistance: distance, layerMask: _groundLayerMask);
             else hit = Physics.SphereCast(origin, thickness / 2f, -up, out hitInfo,
-                    maxDistance: distance, layerMask: layerMask);
+                    maxDistance: distance, layerMask: _groundLayerMask);
 
             if (hit)
             {
                 groundInfo.Distance = Vector3.Distance(hitInfo.point, origin);
                 groundInfo.Point = hitInfo.point;
                 groundInfo.Normal = hitInfo.normal;
-                groundInfo.IsOnGround = (groundInfo.Distance <= groundDistanceThreshold) && (groundInfo.Normal.y > 0);
+                groundInfo.IsOnGround = (groundInfo.Distance <= GroundDistanceThreshold) && (groundInfo.Normal.y > 0);
                 if (groundInfo.IsOnGround)
                 {
                     groundInfo.Collider = hitInfo.collider;
@@ -75,10 +75,13 @@ namespace CC.SRMove
         /// <param name="range"></param>
         /// <param name="iters"></param>
         /// <returns></returns>
-        public static Vector3 ApproximateSlope(in GroundInfo groundInfo, out Vector3 slopePoint,
-            Vector3 origin, Vector3 up, float maxGroundDistance, float maxHeightDiff, LayerMask layerMask,
+        public Vector3 ApproximateSlope(in GroundInfo groundInfo, out Vector3 slopePoint,
             Vector3 forward, float range, int iters = 1, bool debug = false)
         {
+            Vector3 origin = GroundProbeOrigin;
+            Vector3 up = _up;
+            float maxGroundDistance = GroundDistanceThreshold + 1f;
+            float maxHeightDiff = _stepUpHeight;
             Vector3 slopeNormal = groundInfo.Normal;
             slopePoint = groundInfo.Point;
             float rangeStep = range / (float)iters;
@@ -86,12 +89,14 @@ namespace CC.SRMove
             // Find front proxy ground point.
             Vector3 frontGroundPoint = groundInfo.Point;
             bool frontProxyHit = SampleFarthestGroundPoint(ref frontGroundPoint,
-                origin, up, maxGroundDistance, maxHeightDiff, layerMask, forward, rangeStep, iters, debug);
+                maxGroundDistance, maxHeightDiff,
+                forward, rangeStep, iters, debug);
 
             // Find back proxy ground point.
             Vector3 backGroundPoint = groundInfo.Point;
             bool backProxyHit = SampleFarthestGroundPoint(ref backGroundPoint,
-                origin, up, maxGroundDistance, maxHeightDiff, layerMask, -forward, rangeStep, iters, debug);
+                maxGroundDistance, maxHeightDiff,
+                -forward, rangeStep, iters, debug);
 
             // Calculate slope normal from 2 proxy ground points.
             if (frontProxyHit || backProxyHit)
@@ -104,7 +109,7 @@ namespace CC.SRMove
                     Debug.DrawLine(frontGroundPoint, backGroundPoint, Color.yellow);
                 }
 #endif
-                if(frontProxyHit && backProxyHit)
+                if (frontProxyHit && backProxyHit)
                 {
                     Vector3 groundProbeSegment = (maxGroundDistance + 100f) * -up;
                     bool hasIntersection = GetIntersection(origin, groundProbeSegment, backGroundPoint, slopeSegment, out slopePoint);
@@ -149,17 +154,19 @@ namespace CC.SRMove
         /// <param name="step">Distance to look ahead in each iteration.</param>
         /// <param name="iters">Number of iterations to run for.</param>
         /// <returns></returns>
-        private static bool SampleFarthestGroundPoint(ref Vector3 groundPoint,
-            Vector3 origin, Vector3 up, float groundProbeDistance, float maxHeightDiff, LayerMask layerMask,
+        private bool SampleFarthestGroundPoint(ref Vector3 groundPoint,
+            float groundProbeDistance, float maxHeightDiff,
             Vector3 direction, float step, int iters, bool debug = false)
         {
+            Vector3 origin = GroundProbeOrigin;
+            Vector3 up = _up;
             Vector3 prevGroundPoint = groundPoint;
             bool proxyHit = false;
             for (int i = 0; i < iters; i++)
             {
                 Vector3 proxyOrigin = origin + (step * ((float)i + 1f) * direction);
                 bool hit = Physics.Raycast(proxyOrigin, -up, out RaycastHit hitInfo,
-                    maxDistance: groundProbeDistance, layerMask: layerMask);
+                    maxDistance: groundProbeDistance, layerMask: _groundLayerMask);
 #if UNITY_EDITOR
                 if (debug)
                 {

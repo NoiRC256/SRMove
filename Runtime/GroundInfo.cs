@@ -15,9 +15,18 @@ namespace CC.SRMove
         {
             IsOnGround = isOnGround;
             Distance = distance;
-            Normal = normal;
             Point = point;
+            Normal = normal;
             Collider = collider;
+        }
+
+        public void Copy(GroundInfo other)
+        {
+            IsOnGround = other.IsOnGround;
+            Distance = other.Distance;
+            Point = other.Point;
+            Normal = other.Normal;
+            Collider = other.Collider;
         }
     }
 }
