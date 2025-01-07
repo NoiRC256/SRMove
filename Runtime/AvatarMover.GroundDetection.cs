@@ -7,13 +7,8 @@ namespace NoiRC.SRMove
         /// <summary>
         /// Probe for ground downwards from origin.
         /// </summary>
-        /// <param name="groundInfo"></param>
-        /// <param name="origin"></param>
-        /// <param name="distance"></param>
-        /// <param name="thickness"></param>
-        /// <param name="layerMask"></param>
-        /// <param name="groundDistanceThreshold"></param>
         /// <param name="findRealNormal"></param>
+        /// <param name="debug"></param>
         /// <returns></returns>
         public GroundInfo Probe(bool findRealNormal = false, bool debug = false)
         {
@@ -68,12 +63,11 @@ namespace NoiRC.SRMove
         /// Approximate the ground slope normal by sampling ground points ahead and behind.
         /// </summary>
         /// <param name="groundInfo"></param>
-        /// <param name="origin"></param>
-        /// <param name="maxGroundDistance"></param>
-        /// <param name="layerMask"></param>
+        /// <param name="slopePoint"></param>
         /// <param name="forward"></param>
         /// <param name="range"></param>
         /// <param name="iters"></param>
+        /// <param name="debug"></param>
         /// <returns></returns>
         public Vector3 ApproximateSlope(in GroundInfo groundInfo, out Vector3 slopePoint,
             Vector3 forward, float range, int iters = 1, bool debug = false)
@@ -147,12 +141,12 @@ namespace NoiRC.SRMove
         /// Otherwise, directly return false.</para>
         /// </summary>
         /// <param name="groundPoint">Output ground point. Should be initialized with a fallback value.</param>
-        /// <param name="origin"></param>
         /// <param name="groundProbeDistance">Distance to probe downward for ground.</param>
-        /// <param name="layerMask">Ground layer mask.</param>
+        /// <param name="maxHeightDiff"></param>
         /// <param name="direction">Direction to move towards for each iteration.</param>
         /// <param name="step">Distance to look ahead in each iteration.</param>
         /// <param name="iters">Number of iterations to run for.</param>
+        /// <param name="debug"></param>
         /// <returns></returns>
         private bool SampleFarthestGroundPoint(ref Vector3 groundPoint,
             float groundProbeDistance, float maxHeightDiff,
