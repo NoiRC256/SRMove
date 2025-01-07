@@ -18,7 +18,7 @@ namespace NoiRC.SRMove
 
         [Header("Physics")]
         [SerializeField] private bool _enableGravity = false;
-        [SerializeField] private Vector3 _gravityAccel = Vector3.down * -49.05f;
+        [SerializeField] private Vector3 _gravityAccel = Vector3.down * -50f;
         [SerializeField] private float _gravitySpeedMax = 20f;
 
         [Header("Ground Detection")]
