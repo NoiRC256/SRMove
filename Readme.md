@@ -15,18 +15,17 @@ WebGL Demos
 
 ## Key Features
 
+:heavy_check_mark: **Ground detection** - Ground contact information is provided each physics frame. Performs ground detection with configurable parameters, using spherecast to support ledge perching
 
-:heavy_check_mark: **Intuitive collider adjustment** - Configure movement collider height while keeping bottom fixed. Configure floating step height while keeping top fixed.
+:heavy_check_mark: **Slope traversal with ground snapping** - Snap to ground surface while moving. Correctly handles velocity on angled surfaces
 
-:heavy_check_mark: **Ground detection** - Ground contact information is provided each physics frame. Performs ground detection with configurable parameters, using spherecast to support ledge perching.
+:heavy_check_mark: **Smooth stair traversal** - Smoothly move up and down on steps and stairs. Produces reliable smoothing behaviour when combined with slope approximation
 
-:heavy_check_mark: **Slope traversal with ground snapping** - Snap to ground surface while moving. Correctly handles velocity on angled surfaces.
+:heavy_check_mark: **Velocity physics** - Optional built-in accleration and deceleration.
 
-:heavy_check_mark: **Smooth stair traversal** - Smoothly move up and down on steps and stairs. Produces reliable smoothing behaviour when combined with slope approximation. 
+:heavy_check_mark: **Supports moving surfaces** - Correctly handles velocity on moving platforms
 
-:heavy_check_mark: **Velocity physics** - Configurable velocity modes with different acceleration / friction.
-
-:heavy_check_mark: **Supports moving surfaces** - Correctly handles velocity on moving platforms.
+:heavy_check_mark: **Intuitive collider adjustment** - Configure collider height or step height while keeping collider bottom or top fixed
 
 ### Environment
 
@@ -41,7 +40,8 @@ Developed and tested in Unity 6000.0.32f1
 2. In your own movement controller, implement your control logic.
     - Reference the `AvatarMover` component to handle actual movement.
 
-A simple example:
+Simple example:
+
 ```csharp
 using UnityEngine;
 using NoiRC.SRMove;
@@ -88,6 +88,7 @@ Move(Vector3 velocity)
 Set the intended movement velocity for one physics frame.
 
 ### Jumping
+
 ```csharp
 LeaveGround()
 ```
@@ -118,5 +119,3 @@ Collider GroundCollider; // The collider of the ground the mover is on.
 bool IsParentedToGround; // Whether the mover is currently parented to the ground object.
 Vector3 Up; // Up direction of the mover.
 ```
-
-
