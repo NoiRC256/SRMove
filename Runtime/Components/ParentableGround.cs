@@ -1,6 +1,7 @@
+using System;
 using UnityEngine;
 
-namespace CC.SRMove
+namespace NoiRC.SRMove
 {
     public class ParentableGround : MonoBehaviour
     {

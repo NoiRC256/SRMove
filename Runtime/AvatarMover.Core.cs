@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace CC.SRMove
+namespace NoiRC.SRMove
 {
     public partial class AvatarMover : MonoBehaviour
     {
@@ -32,6 +32,7 @@ namespace CC.SRMove
             else
             {
                 isTouchingWall = true;
+                _wallNormal = contact.normal;
             }
             return true;
         }
@@ -90,7 +91,10 @@ namespace CC.SRMove
 
             // Assemble the velocity to apply.
             Vector3 velocityGravity = IsLeavingGround ? Vector3.zero : _velocityGravity;
-            Vector3 velocityMove = _alignVelocityToSlope ? AlignVelocityToPlane(_velocityInput, _slopeNormal) : _velocityInput;
+            float alignVelocityToPlaneFactor = _collisionIsTouchingWall ?
+                1f - Mathf.Abs(Vector3.Dot(Vector3.ProjectOnPlane(_velocityInput.normalized, _up), Vector3.ProjectOnPlane(_wallNormal, _up))) :
+                1f;
+            Vector3 velocityMove = _alignVelocityToSlope ? AlignVelocityToPlane(_velocityInput, _slopeNormal, alignVelocityToPlaneFactor) : _velocityInput;
             Vector3 velocityToApply = _velocityGroundRb + velocityGravity +
                 _velocityHover + velocityMove +
                 _velocityLeaveGround + _velocityConstForce;

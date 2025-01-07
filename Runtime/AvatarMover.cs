@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace CC.SRMove
+namespace NoiRC.SRMove
 {
     [RequireComponent(typeof(Rigidbody))]
     [RequireComponent(typeof(CapsuleCollider))]
@@ -18,7 +18,7 @@ namespace CC.SRMove
 
         [Header("Physics")]
         [SerializeField] private bool _enableGravity = false;
-        [SerializeField] private Vector3 _gravityAccel = Vector3.down * 9.8f;
+        [SerializeField] private Vector3 _gravityAccel = Vector3.down * -49.05f;
         [SerializeField] private float _gravitySpeedMax = 20f;
 
         [Header("Ground Detection")]
@@ -31,26 +31,87 @@ namespace CC.SRMove
         [SerializeField] private bool _groundProbeFindRealNormal = false;
 
         [Header("Step")]
-        [SerializeField][Min(0f)] private float _stepSmoothDelay = 0.05f;
-        [SerializeField][Min(0f)] private float _stepUpHeight = 0.3f;
-        [SerializeField][Min(0f)] private float _stepDownHeight = 0.3f;
-        [SerializeField][Min(1f)] private float _stepUpSmooth = 3f;
-        [SerializeField][Min(1f)] private float _stepDownSmooth = 3f;
-        [Tooltip("Step up and step down smoothing multipler while moving.")]
+        [Tooltip("Delay for enforcing step height after a large ground height change." +
+            " Large ground height change: Distance to ground difference between physics frames is larger than 0.1 * (stepUpHeight + stepDownHeight)")]
+        [SerializeField][Min(0f)] private float _stepSmoothDelay = 0.1f;
+        [SerializeField][Min(0f)] private float _stepUpHeight = 0.5f;
+        [SerializeField][Min(0f)] private float _stepDownHeight = 0.5f;
+        [Tooltip("Larger values apply more smoothing when stepping up.")]
+        [SerializeField][Min(1f)] private float _stepUpSmooth = 10f;
+        [Tooltip("Larger values apply more smoothing when stepping down.")]
+        [SerializeField][Min(1f)] private float _stepDownSmooth = 10f;
+        [Tooltip("Multipler for step up and step down smoothing while moving.")]
         [SerializeField][Min(0f)] private float _stepSmoothMovingMultipler = 1f;
+        [Tooltip("If true, aligns movement velocity with ground slope.")]
         [SerializeField] private bool _alignVelocityToSlope = true;
         [Tooltip("Range in front of and behind for ground slope approximation.")]
         [SerializeField][Min(0f)] private float _slopeApproxRange = 1f;
         [SerializeField][Min(0)] private int _slopeApproxIters = 4;
 
         [Header("Debug")]
+        [Tooltip("Display debug gizmos for ground detection.")]
         [SerializeField] private bool _debugGroundDetection = false;
+        [Tooltip("Display debug gizmos for slope approximation.")]
         [SerializeField] private bool _debugSlopeApproximation = false;
+
+        #endregion
+
+        #region Fields
+
+        [SerializeField][HideInInspector] private Rigidbody _rigidbody;
+        [SerializeField][HideInInspector] private CapsuleCollider _collider;
+
+        // State.
+        private Vector3 _up = Vector3.up;
+        private GroundInfo _collisionGroundInfo = GroundInfo.Empty;
+        private bool _hasDirectCollision = false;
+        private bool _collisionIsTouchingCeiling = false;
+        private bool _collisionIsTouchingWall = false;
+        private Vector3 _wallNormal = Vector3.forward;
+        private GroundInfo _groundInfo = GroundInfo.Empty;
+        private bool _isOnGround;
+        private bool _isOnGroundChangedThisFrame;
+        private bool _shouldLeaveGround = false;
+        private bool _isTouchingCeiling = false;
+        private Collider _groundCollider = null;
+        private Rigidbody _groundRb = null;
+        private ParentableGround _groundParent = null;
+        private Vector3 _lastNonZeroDirection = Vector3.forward;
+
+        // Step smoothing.
+        private Vector3 _slopePoint = Vector3.zero;
+        private Vector3 _slopeNormal = Vector3.up;
+        private float _stepHeightHoverPatch = 0f;
+        private float _stepSmoothDelayCounter = 0f;
+
+        // Velocities.
+        private Vector3 _velocityGroundRb = Vector3.zero;
+        private Vector3 _velocityGravity = Vector3.zero;
+        private Vector3 _velocityHover = Vector3.zero;
+        private Vector3 _velocityConstForce = Vector3.zero;
+        private Vector3 _velocityLeaveGround = Vector3.zero;
+        private Vector3 _velocityInput = Vector3.zero;
 
         #endregion
 
         #region Properties
 
+        /// <summary>
+        /// The up direction.
+        /// </summary>
+        public Vector3 Up {
+            get => _up;
+            set {
+                if (value != _up)
+                {
+                    HandleUpDirectionChange(value);
+                }
+                _up = value;
+            }
+        }
+        /// <summary>
+        /// Ground detection information.
+        /// </summary>
         public GroundInfo GroundInfo {
             get => _groundInfo;
             private set {
@@ -61,7 +122,6 @@ namespace CC.SRMove
         }
         /// <summary>
         /// Whether the mover is on ground this physics frame.
-        /// <para>True if ground probe has detected ground or capsule collider is touching ground.</para>
         /// </summary>
         public bool IsOnGround {
             get => _isOnGround;
@@ -83,6 +143,9 @@ namespace CC.SRMove
                 _isTouchingCeiling = value;
             }
         }
+        /// <summary>
+        /// The collider of the ground the mover is currently on.
+        /// </summary>
         public Collider GroundCollider {
             get => _groundCollider;
             private set {
@@ -95,19 +158,15 @@ namespace CC.SRMove
                 _groundCollider = value;
             }
         }
-        public Vector3 Up {
-            get => _up;
-            set {
-                if (value != _up)
-                {
-                    HandleUpDirectionChange(value);
-                }
-                _up = value;
-            }
-        }
+        /// <summary>
+        /// If true, the mover is currently parented to the ground it's on.
+        /// </summary>
         public bool IsParentedToGround {
             get; private set;
         }
+        /// <summary>
+        /// Reference to the <see cref="ParentableGround"/> component of the ground that the mover is currently parented to.
+        /// </summary>
         private ParentableGround GroundParent {
             get => _groundParent;
             set {
@@ -118,14 +177,21 @@ namespace CC.SRMove
                 _groundParent = value;
             }
         }
+        /// <summary>
+        /// If true, ignore any detected ground and force self to be considered as not on ground.
+        /// </summary>
         private bool IsLeavingGround => _shouldLeaveGround || _velocityLeaveGround != Vector3.zero;
         private float ColliderHalfHeight => _collider.height / 2f;
         /// <summary>
-        /// Desired ground distance from the capsule collider center.
+        /// Capsule collider center.
         /// </summary>
-        private float GroundDistanceDesired => ColliderHalfHeight + _stepUpHeight;
+        private Vector3 GroundProbeOrigin => _collider.transform.position + GroundDistanceDesired * _up;
         /// <summary>
-        /// Ground probe hits witin this distance from the capsule collider center is considered to be ground.
+        /// Total distance to probe downwards for ground from the capsule collider center.
+        /// </summary>
+        private float GroundProbeDistance => GroundDistanceThreshold + _groundProbeExtraDistance;
+        /// <summary>
+        /// Ground probe results that are within this distance from the GroundProbeOrigin is considered to be ground.
         /// </summary>
         private float GroundDistanceThreshold {
             get {
@@ -135,55 +201,9 @@ namespace CC.SRMove
             }
         }
         /// <summary>
-        /// Total distance to probe downwards for ground from the capsule collider center.
+        /// Desired ground distance from the capsule collider center.
         /// </summary>
-        private float GroundProbeDistance => GroundDistanceThreshold + _groundProbeExtraDistance;
-        /// <summary>
-        /// Capsule collider center.
-        /// </summary>
-        private Vector3 GroundProbeOrigin => _collider.transform.position + GroundDistanceDesired * _up;
-
-        #endregion
-
-        #region Fields
-
-        #region Cache Fields
-
-        [SerializeField][HideInInspector] private Rigidbody _rigidbody;
-        [SerializeField][HideInInspector] private CapsuleCollider _collider;
-
-        private GroundInfo _collisionGroundInfo = GroundInfo.Empty;
-        private GroundInfo _groundInfo = GroundInfo.Empty;
-        private bool _isOnGround;
-        private bool _isTouchingCeiling = false;
-        private bool _collisionIsTouchingWall = false;
-        private Collider _groundCollider = null;
-        private Rigidbody _groundRb = null;
-        private ParentableGround _groundParent = null;
-        private Vector3 _slopePoint = Vector3.zero;
-        private Vector3 _slopeNormal = Vector3.up;
-        private Vector3 _velocityGroundRb = Vector3.zero;
-        private Vector3 _velocityGravity = Vector3.zero;
-        private Vector3 _velocityHover = Vector3.zero;
-        private Vector3 _velocityConstForce = Vector3.zero;
-        private Vector3 _velocityLeaveGround = Vector3.zero;
-        private Vector3 _velocityInput = Vector3.zero;
-
-        private Vector3 _lastNonZeroDirection = Vector3.forward;
-        private float _stepHeightHoverPatch = 0f;
-        private float _stepSmoothDelayCounter = 0f;
-
-        #endregion
-
-        #region State Fields
-
-        [SerializeField] private Vector3 _up = Vector3.up;
-        private bool _isOnGroundChangedThisFrame;
-        private bool _shouldLeaveGround = false;
-        private bool _collisionIsTouchingCeiling = false;
-        private bool _hasDirectCollision = false;
-
-        #endregion
+        private float GroundDistanceDesired => ColliderHalfHeight + _stepUpHeight;
 
         #endregion
 
@@ -224,7 +244,6 @@ namespace CC.SRMove
         private void FixedUpdate()
         {
             UpdateCollisionCheck();
-            _hasDirectCollision = false;
             UpdateMovement(Time.deltaTime);
             UpdateCleanup();
         }
@@ -232,16 +251,23 @@ namespace CC.SRMove
         private void Update()
         {
             _up = transform.up;
-            Debug.DrawLine(GroundProbeOrigin, GroundProbeOrigin + GroundProbeDistance * -_up, Color.green);
+#if UNITY_EDITOR
+            if (_debugGroundDetection) Debug.DrawLine(GroundProbeOrigin, GroundProbeOrigin + GroundProbeDistance * -_up, Color.green);
+#endif
         }
 
+#if UNITY_EDITOR
         private void OnDrawGizmos()
         {
-            Gizmos.color = Color.green;
-            Gizmos.DrawSphere(_groundInfo.Point, 0.25f);
+            if (_debugGroundDetection)
+            {
+                Gizmos.color = Color.green;
+                Gizmos.DrawSphere(_groundInfo.Point, 0.25f);
+            }
         }
+#endif
 
-        #endregion
+#endregion
 
         #region Init
 
