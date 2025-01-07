@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green.svg?style=flat&cacheSeconds=2592000)](https://github.com/NoiRC256/SRMove/blob/main/LICENSE)
 <!-- [![WebGL Demo](https://img.shields.io/badge/demo-WebGL-orange.svg?style=flat&logo=google-chrome&logoColor=white&cacheSeconds=2592000)](https://noirccc.net/blog/predictive-damping-demo) -->
 
-A rigidbody character movement solution that uses slope approximation to move smoothly on stairs and obstacles.
+A low-level rigidbody character movement solution that uses slope approximation to move smoothly across stairs and obstacles.
 
 <img src="https://github.com/NoiRC256/SRMove/assets/33998067/33ac7870-36e6-4c35-9390-4bbd4c5b6832" alt="SRMove-Side-By-Side-Example" width="320">
 
@@ -15,15 +15,11 @@ WebGL Demos
 
 ## Key Features
 
-:heavy_check_mark: **Ground detection** - Ground contact information is provided each physics frame. Performs ground detection with configurable parameters, using spherecast to support ledge perching
+:heavy_check_mark: **Reliable slope traversal** - Snap to angled ground surface while moving
 
-:heavy_check_mark: **Slope traversal with ground snapping** - Snap to ground surface while moving. Correctly handles velocity on angled surfaces
+:heavy_check_mark: **Smooth stair traversal** - Smoothly move up / down stairs and across obstacles
 
-:heavy_check_mark: **Smooth stair traversal** - Smoothly move up and down on steps and stairs. Produces reliable smoothing behaviour when combined with slope approximation
-
-:heavy_check_mark: **Velocity physics** - Optional built-in accleration and deceleration.
-
-:heavy_check_mark: **Supports moving surfaces** - Correctly handles velocity on moving platforms
+:heavy_check_mark: **Supports moving surfaces** - Correctly handle velocity on moving platforms
 
 :heavy_check_mark: **Intuitive collider adjustment** - Configure collider height or step height while keeping collider bottom or top fixed
 
@@ -54,15 +50,18 @@ public class MyMovementController : MonoBehaviour
 
     [SerializeField] private AvatarMover _avatarMover;
     [SerializeField] private Transform _cam; // Reference transform used to determine movement direction.
-    [SerializeField] private float _speed = 3f;
+    [SerializeField] private float _moveSpeed = 3f;
 
     private void FixedUpdate()
     {
-        // Calculate the direction you wish to move along.
-        Vector3 moveDirection = GetMoveDirection(_input.GetMoveInput(), _cam);
+        // Calculate the intended movement speed.
+        float speed = _inputSource.HasInput() ? _moveSpeed : 0f;
+
+        // Calculate the intended movement direction.
+        Vector3 direction = GetMoveDirection(_input.GetMoveInput(), _cam);
 
         // Move.
-        _avatarMover.Move(_speed * moveDirection);    
+        _avatarMover.Move(speed * direction);    
     }
 
     // Convert 2D input vector into 3D worldspace direction relative to the third-person camera.
