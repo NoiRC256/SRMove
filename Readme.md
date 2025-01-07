@@ -1,7 +1,7 @@
 
 # SRMove
 [![license](https://img.shields.io/badge/license-MIT-green.svg?style=flat&cacheSeconds=2592000)](https://github.com/NoiRC256/SRMove/blob/main/LICENSE)
-<!-- [![WebGL Demo](https://img.shields.io/badge/demo-WebGL-orange.svg?style=flat&logo=google-chrome&logoColor=white&cacheSeconds=2592000)](https://noirccc.net/blog/predictive-damping-demo) -->
+[![WebGL Demo](https://img.shields.io/badge/demo-WebGL-orange.svg?style=flat&logo=google-chrome&logoColor=white&cacheSeconds=2592000)](https://noirccc.net/blog/srmove-v2-demo)
 
 A low-level rigidbody character movement solution that uses slope approximation to move smoothly across stairs and obstacles.
 
@@ -9,9 +9,7 @@ A low-level rigidbody character movement solution that uses slope approximation 
 
 *Smooth stair traversal without IK or mesh modification.*
 
-WebGL Demos
-- <a href="https://noirccc.net/blog/predictive-damping-demo" target="_blank">SRMove v1.0</a>
-- SRMove v2.0 - soon
+[v2.0 WebGL Demo](https://noirccc.net/blog/srmove-v2-demo)
 
 ## Key Features
 
