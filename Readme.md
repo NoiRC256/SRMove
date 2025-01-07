@@ -58,14 +58,11 @@ public class MyMovementController : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (_inputSource.HasMoveInput())
-        {
-            // Calculate the direction you wish to move along.
-            Vector3 moveDirection = GetMoveDirection(_input.GetMoveInput(), _cam);
+        // Calculate the direction you wish to move along.
+        Vector3 moveDirection = GetMoveDirection(_input.GetMoveInput(), _cam);
 
-            // Move.
-            _avatarMover.Move(_speed * moveDirection);
-        }
+        // Move.
+        _avatarMover.Move(_speed * moveDirection);    
     }
 
     // Convert 2D input vector into 3D worldspace direction relative to the third-person camera.
