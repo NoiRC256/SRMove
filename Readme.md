@@ -10,7 +10,7 @@ A rigidbody character movement solution that uses slope approximation to move sm
 *Smooth stair traversal without IK or mesh modification.*
 
 WebGL Demos
-- [SRMove v1.0](https://noirccc.net/blog/predictive-damping-demo)
+- <a href="https://noirccc.net/blog/predictive-damping-demo" target="_blank">SRMove v1.0</a>
 - SRMove v2.0 - soon
 
 ## Key Features
