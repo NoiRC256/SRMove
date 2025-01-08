@@ -29,9 +29,7 @@ Developed and tested in Unity 6000.0.32f1
 
 ### Installation
 
-Install via git URL
-
-`https://github.com/NoiRC256/SRMove.git`
+Install via git URL: `https://github.com/NoiRC256/SRMove.git`
 
 ![srmove-install-git-package-manager](https://github.com/user-attachments/assets/ea5ae557-12a7-4c28-985d-bb77f60efe44)
 
