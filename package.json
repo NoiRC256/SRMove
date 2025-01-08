@@ -1,0 +1,16 @@
+{
+    "name": "com.noirc.srmove",
+    "version": "2.0.0",
+    "displayName": "SRMove",
+    "description": "Rigidbody character mover that uses slope approximation to move smoothly across stairs and obstacles.",
+    "documentationUrl": "https://github.com/NoiRC256/SRMove",
+    "changelogUrl": "https://github.com/NoiRC256/SRMove/releases",
+    "licensesUrl": "https://github.com/NoiRC256/SRMove/blob/main/LICENSE",
+   "keywords": [
+      "move"
+    ],
+    "author": {
+      "name": "NoiRC",
+      "url": "https://github.com/NoiRC256"
+    }
+  }
