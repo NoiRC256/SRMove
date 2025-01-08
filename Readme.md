@@ -27,14 +27,20 @@ Developed and tested in Unity 6000.0.32f1
 
 # Quick Start
 
+### Installation
+
+Install via git URL: https://github.com/NoiRC256/SRMove.git
+
+![srmove-install-git-package-manager](https://github.com/user-attachments/assets/ea5ae557-12a7-4c28-985d-bb77f60efe44)
+
+### Usage Example
+
 `NoiRC.SRMove.AvatarMover` is equivalent to Unity's `CharacterContoller`.
 
 1. Add an `AvatarMover` component to your character gameobject.
 
 2. In your own movement controller, implement your control logic.
     - Reference the `AvatarMover` component to handle actual movement.
-
-Simple example:
 
 ```csharp
 using UnityEngine;
