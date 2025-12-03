@@ -9,7 +9,9 @@ A low-level rigidbody character movement solution that uses slope approximation 
 
 *Smooth stair traversal without IK or mesh modification.*
 
-[v2.0 WebGL Demo](https://noirccc.net/blog/srmove-v2-demo)
+[V2.0 WebGL Demo](https://noirccc.net/blog/srmove-v2-demo)
+
+[Demo project](https://github.com/NoiRC256/SRMoveDev)
 
 ## Key Features
 
@@ -90,25 +92,58 @@ Set the intended movement velocity for one physics frame.
 
 ### Jumping
 
-```csharp
-LeaveGround()
-```
-When intending to start a jump, call `LeaveGround()` to pause ground-related functionalities.
+`AvatarMover` expects you to drive jumps explicitly. The mover only manages grounding behaviour and velocity application — you decide the jump velocity profile and timing. 
 
+Use the provided methods to pause/resume grounding behaviour:
+- `LeaveGround()`
+- `EndLeaveGround()`
+   
+#### Example Jump Logic
 
-```csharp
-EndLeaveGround()
-```
-When intending to end a jump, call `EndLeaveGround()` to resume ground-related functionalities.
+##### Concept
+
+A jump can be broken down into:
+1. **Start** - character leaves ground - Jump starts here
+1. **Rising** - character moves upward
+2. **Apex** - character reaches highest point, rising stops - Jump stops here
+
+"Jump duration" = time from the start `(1)` to the apex `(3)`. You could use this duration with elapsed time to drive your jump velocity (e.g. a simple lerp or stylized curve).
+
+##### Example
+
+[SimpleAvatarController](https://github.com/NoiRC256/SRMoveDev/blob/main/Assets/Scripts/Avatar/SimpleAvatarController.cs)
+
+Keep calls to the mover exactly as shown below:
+
+1. Whens starting a jump, call:
+    ```csharp
+    LeaveGround()
+    ```
+    - Tells the mover you're intentionally leaving the ground.
+    - The mover will stop trying to stick to ground / do slope detection while you're airborne.
+  
+2. During a jump, every fixed update, produce a `jumpVelocity` yourself and apply it using something like:
+    ```csharp
+    Move(moveVelocity * airControlFactor + jumpVelocity)
+    ```   
+    - Note: Do this in `FixedUpdate` so timing is stable.
+    - `moveVelocity` - horizontal input / ground-relative velocity you want while in air.
+    - `airControlFactor` - between 0 and 1, reduces horizontal control while airborne.
+    - `jumpVelocity` - should be a Vector3 (typically only with a positive Y component).
+
+3. When the jump is supposed to end (reached jump duration), call:
+    ```csharp
+    EndLeaveGround()
+    ```
+    - Tells the mover you are no longer intentionally leaving ground.
+    - After this call the mover will resume normal gravity/grounding behaviour (falling / landing detection).
 
 ### Moving Surfaces
 
-By default, a character with an `AvatarMover` component inherits the velocity (but not rotation) of any moving ground collider it's on.
+By default, a character using `AvatarMover` **inherits the ground’s velocity** (but **not** rotation) whenever it stands on a moving collider.
 
-Add a `ParentableGround` component to a ground gameobject to enable **ground parenting** when a character is on it.
-
-- Ground parenting: The character is parented to the ground gameobject it's currently on, inheriting both position and rotation.
-
+To make the character follow the moving collider's **position *and* rotation**, add a `ParentableGround` component to that moving collider gameobject.
+- **Ground Parenting**: When the character stands on a gameobject with a `ParentableGround` component, it becomes a child of that gameobject and fully inherits its movement and rotation.
 
 
 ### Status Properties
