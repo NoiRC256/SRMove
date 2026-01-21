@@ -1,3 +1,4 @@
+using Unity.VisualScripting;
 using UnityEngine;
 
 namespace NoiRC.SRMove
@@ -39,7 +40,7 @@ namespace NoiRC.SRMove
 
         private void UpdateCollisionCheck()
         {
-            GroundInfo groundInfoNew = Probe(findRealNormal: _groundProbeFindRealNormal, debug: _debugGroundDetection);
+            GroundInfo groundInfoNew = Probe(origin: GroundProbeOrigin, findRealNormal: _groundProbeFindRealNormal, debug: _debugGroundDetection);
             if (!groundInfoNew.IsOnGround && _collisionGroundInfo.IsOnGround)
             {
                 //groundInfoNew.Copy(_collisionGroundInfo);
@@ -96,9 +97,23 @@ namespace NoiRC.SRMove
                 1f;
             Vector3 velocityMove = _alignVelocityToSlope ? AlignVelocityToPlane(_velocityInput, _slopeNormal, alignVelocityToPlaneFactor) : _velocityInput;
             Vector3 velocityToApply = _velocityGroundRb + velocityGravity +
-                _velocityHover + velocityMove +
-                _velocityLeaveGround + _velocityConstForce;
-            _velocityLeaveGround = Vector3.MoveTowards(_velocityLeaveGround, Vector3.zero, _rigidbody.mass * deltaTime);
+                _velocityHover + velocityMove;
+
+            if (_shouldPredictGround)
+            {
+                if (!IsOnGround)
+                {
+                    // Clamp velocity if about to touch ground.
+                    Vector3 nextPos = Position + velocityToApply * Time.deltaTime;
+                    var nextGroundInfo = Probe(origin: nextPos + GroundDistanceDesired * _up);
+                    bool willBeOnGround = nextGroundInfo.IsOnGround;
+                    if (willBeOnGround)
+                    {
+                        float distanceToGround = Vector3.Distance(nextGroundInfo.Point, Position) * 0.5f;
+                        velocityToApply = LimitVelocityComponent(velocityToApply, direction: -_up, maxMagnitude: distanceToGround / Time.deltaTime);
+                    }
+                }
+            }
 
             ApplyVelocity(velocityToApply);
         }

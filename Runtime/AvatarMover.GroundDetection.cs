@@ -10,9 +10,8 @@ namespace NoiRC.SRMove
         /// <param name="findRealNormal"></param>
         /// <param name="debug"></param>
         /// <returns></returns>
-        public GroundInfo Probe(bool findRealNormal = false, bool debug = false)
+        public GroundInfo Probe(Vector3 origin, bool findRealNormal = false, bool debug = false)
         {
-            Vector3 origin = GroundProbeOrigin;
             Vector3 up = _up;
             float distance = GroundProbeDistance;
             float thickness = _groundProbeThickness;

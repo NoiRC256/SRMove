@@ -29,6 +29,7 @@ namespace NoiRC.SRMove
         [Tooltip("If true, while on ground, if ground probe thickness is greater than 0," +
             "fires a secondary raycast towards ground point to obtain actual surface normal.")]
         [SerializeField] private bool _groundProbeFindRealNormal = false;
+        [SerializeField] private bool _shouldPredictGround = true;
 
         [Header("Step")]
         [Tooltip("Delay for enforcing step height after a large ground height change." +
@@ -88,8 +89,6 @@ namespace NoiRC.SRMove
         private Vector3 _velocityGroundRb = Vector3.zero;
         private Vector3 _velocityGravity = Vector3.zero;
         private Vector3 _velocityHover = Vector3.zero;
-        private Vector3 _velocityConstForce = Vector3.zero;
-        private Vector3 _velocityLeaveGround = Vector3.zero;
         private Vector3 _velocityInput = Vector3.zero;
 
         #endregion
@@ -109,6 +108,7 @@ namespace NoiRC.SRMove
                 _up = value;
             }
         }
+        public Vector3 Position => _collider.transform.position;
         /// <summary>
         /// Ground detection information.
         /// </summary>
@@ -180,12 +180,12 @@ namespace NoiRC.SRMove
         /// <summary>
         /// If true, ignore any detected ground and force self to be considered as not on ground.
         /// </summary>
-        private bool IsLeavingGround => _shouldLeaveGround || _velocityLeaveGround != Vector3.zero;
+        private bool IsLeavingGround => _shouldLeaveGround;
         private float ColliderHalfHeight => _collider.height / 2f;
         /// <summary>
         /// Capsule collider center.
         /// </summary>
-        private Vector3 GroundProbeOrigin => _collider.transform.position + GroundDistanceDesired * _up;
+        private Vector3 GroundProbeOrigin => Position + GroundDistanceDesired * _up;
         /// <summary>
         /// Total distance to probe downwards for ground from the capsule collider center.
         /// </summary>

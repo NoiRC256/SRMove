@@ -51,6 +51,27 @@ namespace NoiRC.SRMove
             return speed * alignedDirection.normalized;
         }
 
+        /// <summary>
+        /// Limit the magnitude of  the provided velocity's component along the specified direction.
+        /// </summary>
+        /// <param name="velocity"></param>
+        /// <param name="direction"></param>
+        /// <param name="maxMagnitude"></param>
+        /// <returns></returns>
+        private Vector3 LimitVelocityComponent(Vector3 velocity, Vector3 direction, float maxMagnitude)
+        {
+            direction = direction.normalized;
+
+            // Component of velocity along the direction
+            float component = Vector3.Dot(velocity, direction);
+
+            // Clamp only that component
+            float clampedComponent = Mathf.Clamp(component, -maxMagnitude, maxMagnitude);
+
+            // Remove old component and add clamped one
+            return velocity + direction * (clampedComponent - component);
+        }
+
         private bool LayerMaskContains(LayerMask layerMask, int layer)
         {
             return layerMask == (layerMask | (1 << layer));

@@ -32,17 +32,5 @@ namespace NoiRC.SRMove
             _isOnGroundChangedThisFrame = true;
             _velocityGravity = Vector3.zero;
         }
-
-        [Obsolete]
-        public void AddLeaveGroundForce(Vector3 force)
-        {
-            _velocityLeaveGround += force;
-        }
-
-        [Obsolete]
-        public void SetConstForce(Vector3 force)
-        {
-            _velocityConstForce = force;
-        }
     }
 }
