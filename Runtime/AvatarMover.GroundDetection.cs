@@ -7,10 +7,13 @@ namespace NoiRC.SRMove
         /// <summary>
         /// Probe for ground downwards from origin.
         /// </summary>
+        /// <param name="origin"></param>
+        /// <param name="extraGroundDistanceThreshold"></param>
         /// <param name="findRealNormal"></param>
         /// <param name="debug"></param>
         /// <returns></returns>
-        public GroundInfo Probe(Vector3 origin, bool findRealNormal = false, bool debug = false)
+        public GroundInfo Probe(Vector3 origin, float extraGroundDistanceThreshold = 0f,
+        bool findRealNormal = false, bool debug = false)
         {
             Vector3 up = _up;
             float distance = GroundProbeDistance;
@@ -28,7 +31,7 @@ namespace NoiRC.SRMove
                 groundInfo.Distance = Vector3.Distance(hitInfo.point, origin);
                 groundInfo.Point = hitInfo.point;
                 groundInfo.Normal = hitInfo.normal;
-                groundInfo.IsOnGround = (groundInfo.Distance <= GroundDistanceThreshold) && (groundInfo.Normal.y > 0);
+                groundInfo.IsOnGround = (groundInfo.Distance <= GroundDistanceThreshold + extraGroundDistanceThreshold) && (groundInfo.Normal.y > 0);
                 if (groundInfo.IsOnGround)
                 {
                     groundInfo.Collider = hitInfo.collider;

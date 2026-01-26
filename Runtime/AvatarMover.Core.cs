@@ -86,8 +86,15 @@ namespace NoiRC.SRMove
             else
             {
                 _slopeNormal = _up;
-                _velocityGravity += _gravityAccel * Time.deltaTime;
+
+                float gravitySpeedCurvePercent = _gravityDurationElapsed / _gravityAccelDuration;
+                float gravitySpeed = _gravitySpeedCurve.Evaluate(gravitySpeedCurvePercent) * _gravitySpeedMax;
+                _velocityGravity += _gravityDirection * gravitySpeed * Time.deltaTime;
                 _velocityGravity = Vector3.ClampMagnitude(_velocityGravity, _gravitySpeedMax);
+                if (_gravityDurationElapsed < _gravityAccelDuration)
+                {
+                    _gravityDurationElapsed += Time.deltaTime;
+                }
             }
 
             // Assemble the velocity to apply.
@@ -105,11 +112,18 @@ namespace NoiRC.SRMove
                 {
                     // Clamp velocity if about to touch ground.
                     Vector3 nextPos = Position + velocityToApply * Time.deltaTime;
-                    var nextGroundInfo = Probe(origin: nextPos + GroundDistanceDesired * _up);
+                    var nextGroundInfo = Probe(origin: nextPos + GroundDistanceDesired * _up, extraGroundDistanceThreshold: 100f);
                     bool willBeOnGround = nextGroundInfo.IsOnGround;
-                    if (willBeOnGround)
+                    bool isFalling = Vector3.Dot(velocityToApply, -_up) > 0f;
+                    if (isFalling && willBeOnGround)
                     {
-                        float distanceToGround = Vector3.Distance(nextGroundInfo.Point, Position) * 0.5f;
+                        if (_velocityInput != Vector3.zero)
+                        {
+                            _slopeNormal = ApproximateSlope(in nextGroundInfo, out _slopePoint,
+                                forward: _lastNonZeroDirection, range: _slopeApproxRange, iters: 5,
+                                debug: _debugSlopeApproximation);
+                        }
+                        float distanceToGround = Vector3.Distance(_slopePoint, Position) * 0.5f;
                         velocityToApply = LimitVelocityComponent(velocityToApply, direction: -_up, maxMagnitude: distanceToGround / Time.deltaTime);
                     }
                 }
@@ -173,6 +187,7 @@ namespace NoiRC.SRMove
             _isOnGroundChangedThisFrame = true;
             OnIsOnGroundChanged.Invoke(isOnGround);
             _velocityGravity = Vector3.zero;
+            _gravityDurationElapsed = 0f;
         }
 
         private void HandleIsTouchingCeilingChange(bool isTouchingCeiling)

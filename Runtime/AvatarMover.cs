@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace NoiRC.SRMove
@@ -18,8 +19,10 @@ namespace NoiRC.SRMove
 
         [Header("Physics")]
         [SerializeField] private bool _enableGravity = false;
-        [SerializeField] private Vector3 _gravityAccel = Vector3.down * -50f;
+        [SerializeField] private Vector3 _gravityDirection = Vector3.down;
+        [SerializeField] private float _gravityAccelDuration = 0.5f;
         [SerializeField] private float _gravitySpeedMax = 20f;
+        [SerializeField] private AnimationCurve _gravitySpeedCurve = AnimationCurve.Linear(0f, 0f, 1f, 1f);
 
         [Header("Ground Detection")]
         [Tooltip("Defines ground layers.")]
@@ -78,6 +81,7 @@ namespace NoiRC.SRMove
         private Rigidbody _groundRb = null;
         private ParentableGround _groundParent = null;
         private Vector3 _lastNonZeroDirection = Vector3.forward;
+        private float _gravityDurationElapsed = 0f;
 
         // Step smoothing.
         private Vector3 _slopePoint = Vector3.zero;
